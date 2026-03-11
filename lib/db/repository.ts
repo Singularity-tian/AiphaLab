@@ -1,14 +1,12 @@
-import Database from "better-sqlite3";
 import { getDb } from "./client";
 
 export interface AgentRow {
   id: number;
   name: string;
-  persona_json: string;
   strategy_name: string;
   initial_cash: number;
   created_at: string;
-  is_active: number;
+  is_active: boolean;
 }
 
 export interface AgentStateRow {
@@ -45,6 +43,7 @@ export interface TradeRow {
   reason: string;
   llm_rationale: string | null;
   signal_score: number | null;
+  phase: string;
 }
 
 export interface SnapshotRow {
@@ -59,235 +58,445 @@ export interface SnapshotRow {
   cumulative_return: number | null;
 }
 
-export interface ReviewRow {
-  id: number;
-  agent_id: number;
-  date: string;
-  review_text: string;
-  mood: string | null;
-}
-
 export interface SimLogRow {
   date: string;
   started_at: string;
   finished_at: string | null;
   agents_processed: number;
-  market_open: number;
+  market_open: boolean;
+}
+
+export interface MemoryRow {
+  id: number;
+  agent_id: number;
+  content: string;
+  memory_type: string;
+  created_at: string;
+}
+
+export interface PhaseLogRow {
+  id: number;
+  phase: string;
+  date: string;
+  started_at: string;
+  finished_at: string | null;
+  agents_run: number;
+  last_agent_id: number | null;
+  notes: string | null;
+}
+
+export interface PriceAlertRow {
+  id: number;
+  ticker: string;
+  alert_type: "spike_up" | "spike_down" | "stop_breach";
+  pct_change: number;
+  price: number;
+  triggered_at: string;
+  processed: boolean;
+}
+
+export interface PerformanceWindow {
+  agentId: number;
+  days: number;
+  cumulativeReturn: number;
+  maxDrawdown: number;
+  winRate: number;
+  totalTrades: number;
+  sharpeRatio: number | null;
+  rank: number;
 }
 
 export class SimDB {
-  private db: Database.Database;
-
-  constructor() {
-    this.db = getDb();
-  }
+  // Cast to any[] return so rows[0] and rows.length work without index errors
+  private sql = getDb() as unknown as (template: TemplateStringsArray, ...values: unknown[]) => Promise<any[]>;
 
   // ---- agents ----
-  insertAgent(a: Omit<AgentRow, "id">): number {
-    const r = this.db
-      .prepare(
-        `INSERT INTO agents (name, persona_json, strategy_name, initial_cash, created_at, is_active)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      )
-      .run(a.name, a.persona_json, a.strategy_name, a.initial_cash, a.created_at, a.is_active);
-    return r.lastInsertRowid as number;
+  async insertAgent(a: Omit<AgentRow, "id" | "created_at">): Promise<number> {
+    const rows = await this.sql`
+      INSERT INTO agents (name, strategy_name, initial_cash, is_active)
+      VALUES (${a.name}, ${a.strategy_name}, ${a.initial_cash}, ${a.is_active})
+      RETURNING id
+    `;
+    return (rows[0] as { id: number }).id;
   }
 
-  getAllAgents(): AgentRow[] {
-    return this.db.prepare("SELECT * FROM agents WHERE is_active = 1").all() as AgentRow[];
+  async getAllAgents(): Promise<AgentRow[]> {
+    const rows = await this.sql`SELECT * FROM agents WHERE is_active = true ORDER BY id`;
+    return rows as unknown as AgentRow[];
   }
 
-  getAgent(id: number): AgentRow | null {
-    return (this.db.prepare("SELECT * FROM agents WHERE id = ?").get(id) as AgentRow) ?? null;
+  async getAgent(id: number): Promise<AgentRow | null> {
+    const rows = await this.sql`SELECT * FROM agents WHERE id = ${id}`;
+    return (rows[0] as unknown as AgentRow) ?? null;
   }
 
   // ---- agent_state ----
-  upsertAgentState(s: AgentStateRow) {
-    this.db
-      .prepare(
-        `INSERT INTO agent_state (agent_id, cash, portfolio_value, total_pnl, last_run_date, run_count)
-         VALUES (@agent_id, @cash, @portfolio_value, @total_pnl, @last_run_date, @run_count)
-         ON CONFLICT(agent_id) DO UPDATE SET
-           cash = excluded.cash,
-           portfolio_value = excluded.portfolio_value,
-           total_pnl = excluded.total_pnl,
-           last_run_date = excluded.last_run_date,
-           run_count = excluded.run_count`
-      )
-      .run(s);
+  async upsertAgentState(s: AgentStateRow): Promise<void> {
+    await this.sql`
+      INSERT INTO agent_state (agent_id, cash, portfolio_value, total_pnl, last_run_date, run_count)
+      VALUES (${s.agent_id}, ${s.cash}, ${s.portfolio_value}, ${s.total_pnl}, ${s.last_run_date}, ${s.run_count})
+      ON CONFLICT (agent_id) DO UPDATE SET
+        cash = EXCLUDED.cash,
+        portfolio_value = EXCLUDED.portfolio_value,
+        total_pnl = EXCLUDED.total_pnl,
+        last_run_date = EXCLUDED.last_run_date,
+        run_count = EXCLUDED.run_count
+    `;
   }
 
-  getAgentState(agentId: number): AgentStateRow | null {
-    return (
-      (this.db
-        .prepare("SELECT * FROM agent_state WHERE agent_id = ?")
-        .get(agentId) as AgentStateRow) ?? null
-    );
+  async getAgentState(agentId: number): Promise<AgentStateRow | null> {
+    const rows = await this.sql`SELECT * FROM agent_state WHERE agent_id = ${agentId}`;
+    return (rows[0] as unknown as AgentStateRow) ?? null;
   }
 
   // ---- positions ----
-  upsertPosition(p: Omit<PositionRow, "id">) {
-    this.db
-      .prepare(
-        `INSERT INTO positions (agent_id, ticker, shares, entry_price, entry_date, trailing_high, cost_basis)
-         VALUES (@agent_id, @ticker, @shares, @entry_price, @entry_date, @trailing_high, @cost_basis)
-         ON CONFLICT(agent_id, ticker) DO UPDATE SET
-           shares = excluded.shares,
-           entry_price = excluded.entry_price,
-           entry_date = excluded.entry_date,
-           trailing_high = excluded.trailing_high,
-           cost_basis = excluded.cost_basis`
-      )
-      .run(p);
+  async upsertPosition(p: Omit<PositionRow, "id">): Promise<void> {
+    await this.sql`
+      INSERT INTO positions (agent_id, ticker, shares, entry_price, entry_date, trailing_high, cost_basis)
+      VALUES (${p.agent_id}, ${p.ticker}, ${p.shares}, ${p.entry_price}, ${p.entry_date}, ${p.trailing_high}, ${p.cost_basis})
+      ON CONFLICT (agent_id, ticker) DO UPDATE SET
+        shares = EXCLUDED.shares,
+        entry_price = EXCLUDED.entry_price,
+        entry_date = EXCLUDED.entry_date,
+        trailing_high = EXCLUDED.trailing_high,
+        cost_basis = EXCLUDED.cost_basis
+    `;
   }
 
-  deletePosition(agentId: number, ticker: string) {
-    this.db
-      .prepare("DELETE FROM positions WHERE agent_id = ? AND ticker = ?")
-      .run(agentId, ticker);
+  async deletePosition(agentId: number, ticker: string): Promise<void> {
+    await this.sql`DELETE FROM positions WHERE agent_id = ${agentId} AND ticker = ${ticker}`;
   }
 
-  getPositions(agentId: number): PositionRow[] {
-    return this.db
-      .prepare("SELECT * FROM positions WHERE agent_id = ?")
-      .all(agentId) as PositionRow[];
+  async getPositions(agentId: number): Promise<PositionRow[]> {
+    const rows = await this.sql`SELECT * FROM positions WHERE agent_id = ${agentId}`;
+    return rows as unknown as PositionRow[];
   }
 
   // ---- trades ----
-  insertTrade(t: Omit<TradeRow, "id">): number {
-    const r = this.db
-      .prepare(
-        `INSERT INTO trades (agent_id, date, ticker, side, shares, price, value, commission, cash_after, reason, llm_rationale, signal_score)
-         VALUES (@agent_id, @date, @ticker, @side, @shares, @price, @value, @commission, @cash_after, @reason, @llm_rationale, @signal_score)`
-      )
-      .run(t);
-    return r.lastInsertRowid as number;
+  async insertTrade(t: Omit<TradeRow, "id">): Promise<number> {
+    const rows = await this.sql`
+      INSERT INTO trades (agent_id, date, ticker, side, shares, price, value, commission, cash_after, reason, llm_rationale, signal_score, phase)
+      VALUES (${t.agent_id}, ${t.date}, ${t.ticker}, ${t.side}, ${t.shares}, ${t.price}, ${t.value}, ${t.commission}, ${t.cash_after}, ${t.reason}, ${t.llm_rationale}, ${t.signal_score}, ${t.phase})
+      ON CONFLICT (agent_id, date, phase, ticker, side) DO NOTHING
+      RETURNING id
+    `;
+    return (rows[0] as { id: number })?.id ?? 0;
   }
 
-  getTrades(agentId: number, limit = 100): TradeRow[] {
-    return this.db
-      .prepare("SELECT * FROM trades WHERE agent_id = ? ORDER BY date DESC, id DESC LIMIT ?")
-      .all(agentId, limit) as TradeRow[];
+  async getTrades(agentId: number, limit = 100): Promise<TradeRow[]> {
+    const rows = await this.sql`
+      SELECT * FROM trades WHERE agent_id = ${agentId}
+      ORDER BY date DESC, id DESC LIMIT ${limit}
+    `;
+    return rows as unknown as TradeRow[];
   }
 
-  getTradesByDate(agentId: number, date: string): TradeRow[] {
-    return this.db
-      .prepare("SELECT * FROM trades WHERE agent_id = ? AND date = ?")
-      .all(agentId, date) as TradeRow[];
+  async getTradesByDate(agentId: number, date: string): Promise<TradeRow[]> {
+    const rows = await this.sql`
+      SELECT * FROM trades WHERE agent_id = ${agentId} AND date = ${date}
+    `;
+    return rows as unknown as TradeRow[];
   }
 
   // ---- daily_snapshots ----
-  insertSnapshot(s: Omit<SnapshotRow, "id">) {
-    this.db
-      .prepare(
-        `INSERT OR REPLACE INTO daily_snapshots
-         (agent_id, date, portfolio_value, cash, position_value, num_positions, daily_return, cumulative_return)
-         VALUES (@agent_id, @date, @portfolio_value, @cash, @position_value, @num_positions, @daily_return, @cumulative_return)`
-      )
-      .run(s);
+  async insertSnapshot(s: Omit<SnapshotRow, "id">): Promise<void> {
+    await this.sql`
+      INSERT INTO daily_snapshots (agent_id, date, portfolio_value, cash, position_value, num_positions, daily_return, cumulative_return)
+      VALUES (${s.agent_id}, ${s.date}, ${s.portfolio_value}, ${s.cash}, ${s.position_value}, ${s.num_positions}, ${s.daily_return}, ${s.cumulative_return})
+      ON CONFLICT (agent_id, date) DO UPDATE SET
+        portfolio_value = EXCLUDED.portfolio_value,
+        cash = EXCLUDED.cash,
+        position_value = EXCLUDED.position_value,
+        num_positions = EXCLUDED.num_positions,
+        daily_return = EXCLUDED.daily_return,
+        cumulative_return = EXCLUDED.cumulative_return
+    `;
   }
 
-  getSnapshots(agentId: number): SnapshotRow[] {
-    return this.db
-      .prepare("SELECT * FROM daily_snapshots WHERE agent_id = ? ORDER BY date ASC")
-      .all(agentId) as SnapshotRow[];
+  async getSnapshots(agentId: number): Promise<SnapshotRow[]> {
+    const rows = await this.sql`
+      SELECT * FROM daily_snapshots WHERE agent_id = ${agentId} ORDER BY date ASC
+    `;
+    return rows as unknown as SnapshotRow[];
   }
 
-  getLatestSnapshot(agentId: number): SnapshotRow | null {
-    return (
-      (this.db
-        .prepare(
-          "SELECT * FROM daily_snapshots WHERE agent_id = ? ORDER BY date DESC LIMIT 1"
-        )
-        .get(agentId) as SnapshotRow) ?? null
-    );
+  async getLatestSnapshot(agentId: number): Promise<SnapshotRow | null> {
+    const rows = await this.sql`
+      SELECT * FROM daily_snapshots WHERE agent_id = ${agentId} ORDER BY date DESC LIMIT 1
+    `;
+    return (rows[0] as unknown as SnapshotRow) ?? null;
   }
 
-  hasSnapshot(agentId: number, date: string): boolean {
-    const r = this.db
-      .prepare("SELECT 1 FROM daily_snapshots WHERE agent_id = ? AND date = ?")
-      .get(agentId, date);
-    return !!r;
-  }
-
-  // ---- daily_reviews ----
-  upsertReview(r: Omit<ReviewRow, "id">) {
-    this.db
-      .prepare(
-        `INSERT OR REPLACE INTO daily_reviews (agent_id, date, review_text, mood)
-         VALUES (@agent_id, @date, @review_text, @mood)`
-      )
-      .run(r);
-  }
-
-  getLatestReview(agentId: number): ReviewRow | null {
-    return (
-      (this.db
-        .prepare(
-          "SELECT * FROM daily_reviews WHERE agent_id = ? ORDER BY date DESC LIMIT 1"
-        )
-        .get(agentId) as ReviewRow) ?? null
-    );
+  async hasSnapshot(agentId: number, date: string): Promise<boolean> {
+    const rows = await this.sql`
+      SELECT 1 FROM daily_snapshots WHERE agent_id = ${agentId} AND date = ${date}
+    `;
+    return rows.length > 0;
   }
 
   // ---- leaderboard ----
-  getLeaderboard(limit = 100): Array<AgentRow & SnapshotRow & { strategy_name: string }> {
-    return this.db
-      .prepare(
-        `SELECT a.id, a.name, a.strategy_name, a.persona_json,
-                s.portfolio_value, s.cumulative_return, s.daily_return, s.date as snap_date,
-                (SELECT COUNT(*) FROM trades WHERE agent_id = a.id) as trade_count
-         FROM agents a
-         JOIN (
-           SELECT agent_id, portfolio_value, cumulative_return, daily_return, date
-           FROM daily_snapshots
-           WHERE (agent_id, date) IN (
-             SELECT agent_id, MAX(date) FROM daily_snapshots GROUP BY agent_id
-           )
-         ) s ON a.id = s.agent_id
-         WHERE a.is_active = 1
-         ORDER BY s.cumulative_return DESC NULLS LAST
-         LIMIT ?`
+  async getLeaderboard(limit = 100): Promise<Array<{
+    id: number;
+    name: string;
+    strategy_name: string;
+    portfolio_value: number;
+    cumulative_return: number | null;
+    daily_return: number | null;
+    snap_date: string;
+    trade_count: number;
+  }>> {
+    const rows = await this.sql`
+      SELECT a.id, a.name, a.strategy_name,
+             s.portfolio_value, s.cumulative_return, s.daily_return, s.date AS snap_date,
+             (SELECT COUNT(*) FROM trades WHERE agent_id = a.id)::int AS trade_count
+      FROM agents a
+      JOIN (
+        SELECT DISTINCT ON (agent_id) agent_id, portfolio_value, cumulative_return, daily_return, date
+        FROM daily_snapshots
+        ORDER BY agent_id, date DESC
+      ) s ON a.id = s.agent_id
+      WHERE a.is_active = true
+      ORDER BY s.cumulative_return DESC NULLS LAST
+      LIMIT ${limit}
+    `;
+    return rows as unknown as any[];
+  }
+
+  // ---- episodic memory ----
+  async insertMemory(agentId: number, content: string, embedding: number[], memoryType = "daily_review"): Promise<void> {
+    const embeddingStr = `[${embedding.join(",")}]`;
+    await this.sql`
+      INSERT INTO agent_memories (agent_id, content, embedding, memory_type)
+      VALUES (${agentId}, ${content}, ${embeddingStr}::vector, ${memoryType})
+    `;
+  }
+
+  async searchEpisodicMemory(agentId: number, queryEmbedding: number[], limit = 5): Promise<MemoryRow[]> {
+    const embeddingStr = `[${queryEmbedding.join(",")}]`;
+    const rows = await this.sql`
+      SELECT id, agent_id, content, memory_type, created_at
+      FROM agent_memories
+      WHERE agent_id = ${agentId}
+      ORDER BY embedding <=> ${embeddingStr}::vector
+      LIMIT ${limit}
+    `;
+    return rows as unknown as MemoryRow[];
+  }
+
+  // ---- phase_log ----
+  async getPhaseLog(phase: string, date: string): Promise<PhaseLogRow | null> {
+    const rows = await this.sql`
+      SELECT * FROM phase_log WHERE phase = ${phase} AND date = ${date}
+    `;
+    return (rows[0] as unknown as PhaseLogRow) ?? null;
+  }
+
+  async insertPhaseLog(phase: string, date: string): Promise<void> {
+    await this.sql`
+      INSERT INTO phase_log (phase, date) VALUES (${phase}, ${date})
+      ON CONFLICT (phase, date) DO NOTHING
+    `;
+  }
+
+  async updatePhaseLogProgress(phase: string, date: string, lastAgentId: number): Promise<void> {
+    await this.sql`
+      UPDATE phase_log
+      SET agents_run = agents_run + 1, last_agent_id = ${lastAgentId}
+      WHERE phase = ${phase} AND date = ${date}
+    `;
+  }
+
+  async finishPhaseLog(phase: string, date: string, totalAgents: number): Promise<void> {
+    await this.sql`
+      UPDATE phase_log
+      SET finished_at = now(), agents_run = ${totalAgents}
+      WHERE phase = ${phase} AND date = ${date}
+    `;
+  }
+
+  // ---- daemon_heartbeat ----
+  async upsertDaemonHeartbeat(phase: string, version: string): Promise<void> {
+    await this.sql`
+      INSERT INTO daemon_heartbeat (id, last_ping, phase, version)
+      VALUES (1, now(), ${phase}, ${version})
+      ON CONFLICT (id) DO UPDATE SET
+        last_ping = now(),
+        phase = EXCLUDED.phase,
+        version = EXCLUDED.version
+    `;
+  }
+
+  async getDaemonHeartbeat(): Promise<{ last_ping: string; phase: string | null; version: string | null } | null> {
+    const rows = await this.sql`SELECT * FROM daemon_heartbeat WHERE id = 1`;
+    return (rows[0] as unknown as any) ?? null;
+  }
+
+  // ---- price_alerts ----
+  async insertPriceAlert(alert: Omit<PriceAlertRow, "id" | "triggered_at" | "processed">): Promise<void> {
+    await this.sql`
+      INSERT INTO price_alerts (ticker, alert_type, pct_change, price)
+      VALUES (${alert.ticker}, ${alert.alert_type}, ${alert.pct_change}, ${alert.price})
+    `;
+  }
+
+  async getPendingAlerts(): Promise<PriceAlertRow[]> {
+    const rows = await this.sql`
+      SELECT * FROM price_alerts WHERE processed = false ORDER BY triggered_at ASC
+    `;
+    return rows as unknown as PriceAlertRow[];
+  }
+
+  async markAlertProcessed(id: number): Promise<void> {
+    await this.sql`UPDATE price_alerts SET processed = true WHERE id = ${id}`;
+  }
+
+  // ---- evolution_log ----
+  async insertEvolutionLog(entry: {
+    agentId: number;
+    trigger: string;
+    fieldChanged: string;
+    oldHash: string | null;
+    newHash: string | null;
+    cumulativeReturnBefore: number | null;
+    rationale: string | null;
+  }): Promise<void> {
+    await this.sql`
+      INSERT INTO evolution_log (agent_id, trigger, field_changed, old_hash, new_hash, cumulative_return_before, rationale)
+      VALUES (${entry.agentId}, ${entry.trigger}, ${entry.fieldChanged}, ${entry.oldHash}, ${entry.newHash}, ${entry.cumulativeReturnBefore}, ${entry.rationale})
+    `;
+  }
+
+  // ---- performance window (for evolution engine) ----
+  async getAgentPerformanceWindow(agentId: number, days: number): Promise<PerformanceWindow | null> {
+    const rows = await this.sql`
+      WITH snapshots AS (
+        SELECT date, portfolio_value, daily_return, cumulative_return
+        FROM daily_snapshots
+        WHERE agent_id = ${agentId}
+        ORDER BY date DESC
+        LIMIT ${days}
+      ),
+      stats AS (
+        SELECT
+          COUNT(*) AS day_count,
+          MAX(cumulative_return) AS max_cum_ret,
+          MIN(cumulative_return) AS min_cum_ret,
+          LAST_VALUE(cumulative_return) OVER (ORDER BY date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS latest_cum_ret,
+          AVG(daily_return) AS avg_daily,
+          STDDEV(daily_return) AS stddev_daily
+        FROM snapshots
+      ),
+      trade_stats AS (
+        SELECT
+          COUNT(*) AS total_trades,
+          COUNT(*) FILTER (WHERE value > cost) AS wins
+        FROM (
+          SELECT t.value, p.cost_basis * t.shares AS cost
+          FROM trades t
+          LEFT JOIN positions p ON p.agent_id = t.agent_id AND p.ticker = t.ticker
+          WHERE t.agent_id = ${agentId} AND t.side = 'SELL'
+          AND t.date >= (CURRENT_DATE - ${days}::int)
+        ) sub
       )
-      .all(limit) as any[];
+      SELECT
+        s.day_count::int AS days,
+        s.latest_cum_ret AS cumulative_return,
+        (s.max_cum_ret - s.min_cum_ret) AS max_drawdown,
+        CASE WHEN ts.total_trades > 0 THEN ts.wins::float / ts.total_trades ELSE 0 END AS win_rate,
+        ts.total_trades::int AS total_trades,
+        CASE WHEN s.stddev_daily > 0 THEN (s.avg_daily / s.stddev_daily) * sqrt(252) ELSE NULL END AS sharpe_ratio
+      FROM stats s, trade_stats ts
+    `;
+
+    if (!rows[0]) return null;
+    const r = rows[0] as any;
+
+    // rank = percentile among all agents by cumulative_return
+    const rankRows = await this.sql`
+      SELECT COUNT(*) AS total,
+             COUNT(*) FILTER (WHERE cumulative_return < ${r.cumulative_return}) AS below
+      FROM (
+        SELECT DISTINCT ON (agent_id) agent_id, cumulative_return
+        FROM daily_snapshots
+        ORDER BY agent_id, date DESC
+      ) latest
+    `;
+    const { total, below } = rankRows[0] as any;
+    const rank = total > 0 ? Math.round((below / total) * 100) : 50;
+
+    return {
+      agentId,
+      days: r.days,
+      cumulativeReturn: parseFloat(r.cumulative_return ?? 0),
+      maxDrawdown: parseFloat(r.max_drawdown ?? 0),
+      winRate: parseFloat(r.win_rate ?? 0),
+      totalTrades: parseInt(r.total_trades ?? 0),
+      sharpeRatio: r.sharpe_ratio != null ? parseFloat(r.sharpe_ratio) : null,
+      rank,
+    };
   }
 
   // ---- simulation_log ----
-  getSimLog(date: string): SimLogRow | null {
-    return (
-      (this.db
-        .prepare("SELECT * FROM simulation_log WHERE date = ?")
-        .get(date) as SimLogRow) ?? null
-    );
+  async getSimLog(date: string): Promise<SimLogRow | null> {
+    const rows = await this.sql`SELECT * FROM simulation_log WHERE date = ${date}`;
+    return (rows[0] as unknown as SimLogRow) ?? null;
   }
 
-  getLastSimLog(): SimLogRow | null {
-    return (
-      (this.db
-        .prepare("SELECT * FROM simulation_log ORDER BY date DESC LIMIT 1")
-        .get() as SimLogRow) ?? null
-    );
+  async getLastSimLog(): Promise<SimLogRow | null> {
+    const rows = await this.sql`SELECT * FROM simulation_log ORDER BY date DESC LIMIT 1`;
+    return (rows[0] as unknown as SimLogRow) ?? null;
   }
 
-  insertSimLog(l: SimLogRow) {
-    this.db
-      .prepare(
-        `INSERT OR IGNORE INTO simulation_log (date, started_at, finished_at, agents_processed, market_open)
-         VALUES (@date, @started_at, @finished_at, @agents_processed, @market_open)`
-      )
-      .run(l);
+  async insertSimLog(l: SimLogRow): Promise<void> {
+    await this.sql`
+      INSERT INTO simulation_log (date, started_at, finished_at, agents_processed, market_open)
+      VALUES (${l.date}, ${l.started_at}, ${l.finished_at}, ${l.agents_processed}, ${l.market_open})
+      ON CONFLICT (date) DO NOTHING
+    `;
   }
 
-  finishSimLog(date: string, agentsProcessed: number) {
-    this.db
-      .prepare(
-        "UPDATE simulation_log SET finished_at = ?, agents_processed = ? WHERE date = ?"
-      )
-      .run(new Date().toISOString(), agentsProcessed, date);
+  async finishSimLog(date: string, agentsProcessed: number): Promise<void> {
+    await this.sql`
+      UPDATE simulation_log SET finished_at = now(), agents_processed = ${agentsProcessed}
+      WHERE date = ${date}
+    `;
   }
 
-  // ---- transactions ----
-  transaction<T>(fn: () => T): T {
-    return this.db.transaction(fn)();
+  // ---- agent_docs (PgFileStore backing) ----
+  async upsertAgentDoc(agentId: number, docType: string, content: string, docDate?: string | null): Promise<void> {
+    const d = docDate ?? null;
+    await this.sql`
+      INSERT INTO agent_docs (agent_id, doc_type, doc_date, content, updated_at)
+      VALUES (${agentId}, ${docType}, ${d}, ${content}, now())
+      ON CONFLICT (agent_id, doc_type, COALESCE(doc_date, '0001-01-01'))
+      DO UPDATE SET content = EXCLUDED.content, updated_at = now()
+    `;
+  }
+
+  async getAgentDoc(agentId: number, docType: string, docDate?: string | null): Promise<string | null> {
+    const d = docDate ?? null;
+    const rows = d
+      ? await this.sql`SELECT content FROM agent_docs WHERE agent_id = ${agentId} AND doc_type = ${docType} AND doc_date = ${d}`
+      : await this.sql`SELECT content FROM agent_docs WHERE agent_id = ${agentId} AND doc_type = ${docType} AND doc_date IS NULL`;
+    return (rows[0] as any)?.content ?? null;
+  }
+
+  async listAgentDocDates(agentId: number, docType: string): Promise<string[]> {
+    const rows = await this.sql`
+      SELECT doc_date FROM agent_docs
+      WHERE agent_id = ${agentId} AND doc_type = ${docType} AND doc_date IS NOT NULL
+      ORDER BY doc_date ASC
+    `;
+    return (rows as any[]).map((r) => String(r.doc_date).substring(0, 10));
+  }
+
+  async getRecentAgentDocs(agentId: number, docType: string, count: number): Promise<string[]> {
+    const rows = await this.sql`
+      SELECT content FROM agent_docs
+      WHERE agent_id = ${agentId} AND doc_type = ${docType} AND doc_date IS NOT NULL
+      ORDER BY doc_date DESC
+      LIMIT ${count}
+    `;
+    return (rows as any[]).map((r) => r.content).reverse();
   }
 }

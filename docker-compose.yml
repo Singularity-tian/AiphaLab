@@ -1,0 +1,33 @@
+services:
+  daemon:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.daemon
+    restart: unless-stopped
+    volumes:
+      - agent_data:/app/data
+    environment:
+      - DATABASE_URL
+      - FMP_API_KEY
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+
+  nextjs:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.nextjs
+    ports:
+      - "3000:3000"
+    volumes:
+      - agent_data:/app/data:ro  # read-only access to agent soul files
+    environment:
+      - DATABASE_URL
+      - FMP_API_KEY
+      - ANTHROPIC_API_KEY
+    depends_on:
+      - daemon
+
+volumes:
+  agent_data:
+    # Shared agent soul files (identity.md, strategy.md, beliefs.json, journal/)
+    # daemon writes, nextjs reads (journal route)

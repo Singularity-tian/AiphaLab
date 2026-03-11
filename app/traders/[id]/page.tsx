@@ -7,19 +7,70 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
+function parseIdentityMd(content: string, fallbackName: string, fallbackStrategy: string) {
+  const nameLineMatch = content.match(/^#\s+(.+?)\s+—\s+(.+)$/m);
+  const bgMatch = content.match(/## Background\n([\s\S]+?)(?=\n##)/);
+  const traitsMatch = content.match(/## Personality\n([\s\S]+?)(?=\n##)/);
+  const philoMatch = content.match(/## Trading Philosophy\n([\s\S]+?)(?=\n##)/);
+  const quirksMatch = content.match(/## Quirks\n([\s\S]+?)(?=\n##)/);
+  const riskMatch = content.match(/Risk tolerance:\s*(\w+)/i);
+
+  const listItems = (block: string) =>
+    block.match(/^-\s+(.+)$/gm)?.map((l) => l.replace(/^-\s+/, "")) ?? [];
+
+  return {
+    name: fallbackName,
+    age: 35,
+    background: bgMatch ? bgMatch[1].trim() : "",
+    personalityTraits: traitsMatch ? listItems(traitsMatch[1]) : [],
+    riskTolerance: riskMatch ? riskMatch[1] : "medium",
+    tradingStyle: nameLineMatch ? nameLineMatch[2].trim() : "signal-based",
+    quirks: quirksMatch ? listItems(quirksMatch[1]) : [],
+    preferredStrategy: fallbackStrategy,
+    description: philoMatch ? philoMatch[1].trim() : "",
+  };
+}
+
 async function getTraderData(id: number) {
   const { SimDB } = await import("@/lib/db/repository");
+  const { FileStore } = await import("@/lib/fileStore");
   const db = new SimDB();
+  const fileStore = new FileStore();
 
-  const agent = db.getAgent(id);
+  const agent = await db.getAgent(id);
   if (!agent) return null;
 
-  const persona = JSON.parse(agent.persona_json);
-  const state = db.getAgentState(id);
-  const review = db.getLatestReview(id);
-  const snapshots = db.getSnapshots(id);
-  const trades = db.getTrades(id, 200);
-  const positions = db.getPositions(id);
+  const [state, snapshots, trades, positions] = await Promise.all([
+    db.getAgentState(id),
+    db.getSnapshots(id),
+    db.getTrades(id, 200),
+    db.getPositions(id),
+  ]);
+
+  let persona = parseIdentityMd("", agent.name, agent.strategy_name);
+  let review: { date: string; review_text: string; mood: string | null } | null = null;
+
+  try {
+    const identityContent = await fileStore.loadIdentity(id);
+    persona = parseIdentityMd(identityContent, agent.name, agent.strategy_name);
+
+    const dates = await fileStore.listJournalDates(id);
+    if (dates.length > 0) {
+      const lastDate = dates[dates.length - 1];
+      const content = await fileStore.readJournal(id, lastDate);
+      if (content) {
+        const moodMatch = content.match(/## Mood:\s*(\w+)/i);
+        const summaryMatch = content.match(
+          /## (?:Summary|Reflection|Thoughts)[^\n]*\n([\s\S]+?)(?=\n##|$)/i
+        );
+        review = {
+          date: lastDate,
+          mood: moodMatch?.[1] ?? "neutral",
+          review_text: summaryMatch?.[1].trim() ?? content.substring(0, 300),
+        };
+      }
+    }
+  } catch {}
 
   return { agent, persona, state, review, snapshots, trades, positions };
 }

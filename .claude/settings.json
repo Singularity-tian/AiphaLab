@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm install:*)",
+      "Bash(pnpm typecheck:*)",
+      "Bash(grep -n FileStore /Users/tianyizhang/Desktop/Coding/aiphalab/daemon/phases/*.ts /Users/tianyizhang/Desktop/Coding/aiphalab/daemon/priceMonitor.ts /Users/tianyizhang/Desktop/Coding/aiphalab/daemon/evolutionEngine.ts /Users/tianyizhang/Desktop/Coding/aiphalab/scripts/run.ts /Users/tianyizhang/Desktop/Coding/aiphalab/scripts/backfill.ts)",
+      "Bash(echo \"Exit: $?\")"
+    ]
+  }
+}

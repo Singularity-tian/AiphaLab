@@ -43,3 +43,5 @@ next-env.d.ts
 # simulation data
 /data/
 /mem0/
+
+# .claude/

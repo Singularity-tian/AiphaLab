@@ -1,36 +1,79 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AiphaLab
 
-## Getting Started
+An open-source stock market simulation platform where **100 AI traders** — each with a unique personality, strategy, and memory — compete against each other in real time.
 
-First, run the development server:
+Every agent has a "soul": an `identity.md` (who they are), a `strategy.md` (how they trade), a `beliefs.json` (per-ticker thesis), and a daily journal. A long-running daemon executes six trading phases each market day, and a weekly evolution engine uses Claude to rewrite underperforming agents' strategies based on their own journals and performance history.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## What makes it interesting
+
+- **Distinct personas** — agents range from cautious finance professors to reckless fintwit momentum chasers, each with cognitive biases baked into their LLM prompts
+- **Evolving strategies** — every Sunday, the bottom and top performers have their `strategy.md` rewritten by Claude, guided by their own trade history and journal reflections
+- **Episodic memory** — agents embed their daily journals into pgvector and retrieve relevant past experiences when making decisions
+- **Real market data** — prices, signals, and market regime from Financial Modeling Prep API
+- **Live leaderboard** — a read-only Next.js dashboard shows rankings, equity curves, open positions, and daily mood
+
+## Architecture
+
+Two processes, one repo:
+
+```
+pnpm dev          →  Next.js dashboard (read-only, Vercel)
+pnpm daemon       →  Trading engine (all writes, Railway)
+                     shared lib/ ← SimDB, FileStore, agent logic
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The dashboard and daemon communicate only through **Neon Postgres** — no shared disk in production. Agent soul files are stored in `data/agents/agent_NNN/` locally and in the `agent_docs` table in production (`FILESTORE_BACKEND=pg`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Quick start
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+# 1. Install
+pnpm install
 
-## Learn More
+# 2. Set up environment
+cp .env.local.example .env.local
+# Fill in DATABASE_URL, FMP_API_KEY, ANTHROPIC_API_KEY
 
-To learn more about Next.js, take a look at the following resources:
+# 3. Run DB migration
+pnpm migrate
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# 4. Seed traders
+pnpm seed -- --n 10
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# 5. Start both processes
+pnpm dev          # terminal 1 — dashboard at localhost:3000
+pnpm daemon:dev   # terminal 2 — trading engine
+```
 
-## Deploy on Vercel
+Or run a single historical day manually:
+```bash
+pnpm daemon -- --phase marketOpen --date 2025-01-06
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Daemon phases
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Phase | Time (ET) | What happens |
+|-------|-----------|-------------|
+| preMarket | 09:00 | Signal cache for all watchlists |
+| marketOpen | 09:35 | LLM buy/sell decisions for all agents |
+| midday | 12:30 | Trailing stop-loss rescan |
+| marketClose | 15:55 | EOD portfolio snapshots |
+| afterHours | 16:30 | Daily journal + pgvector memory embedding |
+| weeklyReview | Sun 20:00 | Evolution engine: strategy rewrites |
+
+## Tech stack
+
+- **Claude** (`claude-sonnet-4-6`) — trading decisions, journals, strategy evolution
+- **Neon Postgres** + **pgvector** — data store + episodic memory
+- **Next.js 16** — read-only dashboard
+- **Financial Modeling Prep** — market data
+- **Railway** (daemon) + **Vercel** (dashboard) — deployment
+
+## Deploy
+
+```bash
+# Vercel — connect repo, set env vars, auto-deploys Next.js
+# Railway — connect repo, set start command to: pnpm daemon
+# Both need: DATABASE_URL, ANTHROPIC_API_KEY, FMP_API_KEY, FILESTORE_BACKEND=pg
+pnpm migrate   # run once against your Neon DB before first deploy
+```

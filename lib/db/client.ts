@@ -1,28 +1,13 @@
-import Database from "better-sqlite3";
-import path from "path";
-import { DDL } from "./schema";
+import { neon } from "@neondatabase/serverless";
 
-const DB_PATH = path.join(process.cwd(), "data", "simulation.db");
+let _sql: ReturnType<typeof neon> | null = null;
 
-let _db: Database.Database | null = null;
-
-export function getDb(): Database.Database {
-  if (!_db) {
-    const { mkdirSync } = require("fs");
-    mkdirSync(path.dirname(DB_PATH), { recursive: true });
-    _db = new Database(DB_PATH);
-    _db.pragma("journal_mode = WAL");
-    _db.pragma("foreign_keys = ON");
-    initDb(_db);
+export function getDb() {
+  if (!_sql) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL environment variable is required");
+    }
+    _sql = neon(process.env.DATABASE_URL);
   }
-  return _db;
-}
-
-function initDb(db: Database.Database) {
-  const stmts = DDL.split(";")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  for (const stmt of stmts) {
-    db.exec(stmt + ";");
-  }
+  return _sql;
 }

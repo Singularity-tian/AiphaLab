@@ -18,7 +18,7 @@ export const TraderPersonaSchema = z.object({
 
 export type TraderPersona = z.infer<typeof TraderPersonaSchema>;
 
-const ARCHETYPE_CLUSTERS = [
+export const ARCHETYPE_CLUSTERS = [
   "Former Goldman Sachs or hedge fund analyst who went independent",
   "Self-taught retail trader from Middle America with strong opinions",
   "Recently retired engineer who discovered investing late in life",
@@ -31,7 +31,7 @@ const ARCHETYPE_CLUSTERS = [
   "Former journalist turned market commentator and occasional trader",
 ];
 
-// A fixed universe of liquid S&P 500 tickers to draw watchlists from
+// Fixed universe of liquid S&P 500 tickers
 export const SP500_UNIVERSE = [
   "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "BRK.B", "JPM", "V",
   "UNH", "XOM", "LLY", "JNJ", "MA", "PG", "AVGO", "HD", "CVX", "MRK",
@@ -41,13 +41,12 @@ export const SP500_UNIVERSE = [
   "ELV", "BLK", "MDT", "DE", "AXP", "GILD", "ADI", "VRTX", "SYK", "ISRG",
   "NOW", "MU", "LRCX", "KLAC", "PANW", "ANET", "SNPS", "CDNS", "FTNT", "CRWD",
   "AMD", "INTC", "ORCL", "COP", "SLB", "EOG", "MPC", "PSX", "VLO", "HAL",
-  "BA", "LMT", "GD", "NOC", "L3T", "TDG", "HII", "HWM", "SPR", "WWD",
-  "DIS", "NFLX", "CMCSA", "T", "VZ", "TMUS", "WBD", "FOX", "PARA", "CHTR",
+  "BA", "LMT", "GD", "NOC", "TDG", "HWM", "DIS", "NFLX", "CMCSA", "T",
+  "VZ", "TMUS", "WBD", "FOX", "PARA", "CHTR", "NET", "SNOW", "DDOG", "ZS",
 ];
 
-/** Generate a deterministic watchlist for an agent seeded by their index. */
+/** Generate a deterministic 30-ticker watchlist seeded by agent index. */
 export function generateWatchlist(agentIndex: number): string[] {
-  // Shuffle SP500_UNIVERSE deterministically based on agentIndex
   const shuffled = [...SP500_UNIVERSE];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = (agentIndex * 1103515245 + 12345 + i) % (i + 1);
@@ -56,49 +55,137 @@ export function generateWatchlist(agentIndex: number): string[] {
   return shuffled.slice(0, 30);
 }
 
+/** Format a persona as identity.md markdown. */
+export function formatIdentityMd(persona: TraderPersona): string {
+  return `# ${persona.name} — ${persona.tradingStyle}
+
+## Background
+${persona.background}
+
+## Personality
+${persona.personalityTraits.map((t) => `- ${t}`).join("\n")}
+
+## Trading Philosophy
+${persona.description}
+
+## Quirks
+${persona.quirks.map((q) => `- ${q}`).join("\n")}
+
+## Parameters
+- Risk tolerance: ${persona.riskTolerance}
+- Decision temperature: ${persona.decisionTemperature}
+- Conviction multiplier: ${persona.convictionMultiplier}
+`;
+}
+
+/** Format a persona as strategy.md markdown. */
+export function formatStrategyMd(persona: TraderPersona): string {
+  const watchlistStr = persona.watchlist.join(", ");
+
+  const entryRules = _generateEntryRules(persona);
+  const exitRules = _generateExitRules(persona);
+  const sizing = _generateSizingRules(persona);
+
+  return `# ${persona.name} — Trading Strategy
+
+## Watchlist
+${watchlistStr}
+
+## Entry Rules
+${entryRules.map((r, i) => `${i + 1}. ${r}`).join("\n")}
+
+## Exit Rules
+${exitRules.map((r, i) => `${i + 1}. ${r}`).join("\n")}
+
+## Position Sizing
+${sizing}
+
+## Risk Management
+- Max portfolio drawdown before going to cash: ${persona.riskTolerance === "reckless" ? "30%" : persona.riskTolerance === "high" ? "20%" : persona.riskTolerance === "medium" ? "15%" : "10%"}
+- Max concurrent positions: ${persona.riskTolerance === "reckless" ? 15 : persona.riskTolerance === "high" ? 10 : 7}
+- Max single-position concentration: ${Math.round(persona.convictionMultiplier * 15)}%
+
+## Self-Identified Weaknesses
+- (To be updated by evolution engine after first week of trading)
+
+## Strategy Changelog
+- Initialized: ${new Date().toISOString().split("T")[0]}
+`;
+}
+
+function _generateEntryRules(persona: TraderPersona): string[] {
+  const strategy = persona.preferredStrategy.toLowerCase();
+  if (strategy.includes("momentum")) {
+    return [
+      "Combined signal score > 0.65 (strong momentum confirmation)",
+      "12-1 momentum score in top 30% of watchlist universe",
+      "SPY regime is trending_up or price > 200-day MA",
+    ];
+  } else if (strategy.includes("graham") || strategy.includes("value")) {
+    return [
+      "Combined signal score > 0.60 (Graham value composite)",
+      "P/E ratio below sector median by at least 20%",
+      "Current ratio > 1.5 and positive EPS trend",
+    ];
+  }
+  return [
+    "Combined signal score > 0.62 (blended value + momentum)",
+    "Graham score > 0.55 AND momentum score > 0.50",
+    "No more than 2 correlated positions from same sector",
+  ];
+}
+
+function _generateExitRules(persona: TraderPersona): string[] {
+  const stopPct = persona.riskTolerance === "reckless" ? 25 : persona.riskTolerance === "high" ? 20 : persona.riskTolerance === "medium" ? 15 : 10;
+  return [
+    `Trailing stop-loss: sell if price drops ${stopPct}% from trailing high`,
+    "Signal score drops below 0.35 (thesis invalidation)",
+    "Position reaches profit target of 30% gain (take partial profits)",
+  ];
+}
+
+function _generateSizingRules(persona: TraderPersona): string[] {
+  const base = Math.round(100 / (persona.riskTolerance === "reckless" ? 6 : 8));
+  return [
+    `Base allocation: ${base}% of portfolio per position`,
+    `Scale-up condition: conviction > 0.8 → allocate up to ${Math.round(base * persona.convictionMultiplier)}%`,
+    `Max concurrent positions: ${persona.riskTolerance === "reckless" ? 15 : persona.riskTolerance === "high" ? 10 : 7}`,
+    `Max single-position concentration: ${Math.round(persona.convictionMultiplier * 15)}%`,
+  ];
+}
+
 export async function generatePersonaBatch(
   archetypeCluster: string,
   strategies: string[],
   agentIndexStart: number,
   batchSize = 10
 ): Promise<TraderPersona[]> {
-  const strategyList = strategies.join(", ");
   const prompt = `Generate ${batchSize} realistic trader personas for a stock market simulation.
 
-Archetype cluster for this batch: "${archetypeCluster}"
+Archetype cluster: "${archetypeCluster}"
+Preferred strategies (use one of): ${strategies.join(", ")}
 
 Rules:
-- Each trader should have a distinct name, age, and believable background
-- Personality traits should include realistic cognitive biases (FOMO, overconfidence, loss aversion, anchoring, etc.)
-- Quirks should be specific behavioral patterns that affect trading (e.g., "always sells everything before earnings", "never buys tech stocks", "doubles down when losing")
-- decisionTemperature: 0.1 = robotic signal follower, 0.95 = highly impulsive
-- convictionMultiplier: 0.5 = timid half-sizer, 2.5 = overconfident oversizer
-- preferredStrategy must be one of: ${strategyList}
-- watchlist: provide exactly 30 ticker symbols from the S&P 500
+- Distinct names, believable backgrounds
+- Personality traits include realistic cognitive biases
+- Quirks are specific behavioral patterns affecting trading
+- decisionTemperature: 0.1=robotic, 0.95=impulsive
+- convictionMultiplier: 0.5=timid, 2.5=overconfident
+- watchlist: exactly 30 S&P 500 tickers
 
-Return a JSON array of ${batchSize} trader objects.
-
-Schema for each trader:
+Return JSON array of ${batchSize} traders:
 {
-  "name": string,
-  "age": number (22-72),
-  "background": string (2-3 sentences),
-  "personalityTraits": string[] (2-5 items),
-  "riskTolerance": "low" | "medium" | "high" | "reckless",
-  "preferredStrategy": string,
-  "tradingStyle": string,
-  "quirks": string[] (1-4 specific behavioral quirks),
-  "decisionTemperature": number (0.1-0.95),
-  "convictionMultiplier": number (0.3-2.5),
-  "description": string (2-3 sentence narrative),
-  "watchlist": string[] (exactly 30 S&P 500 tickers)
+  "name": string, "age": number, "background": string,
+  "personalityTraits": string[], "riskTolerance": "low"|"medium"|"high"|"reckless",
+  "preferredStrategy": string, "tradingStyle": string,
+  "quirks": string[], "decisionTemperature": number, "convictionMultiplier": number,
+  "description": string, "watchlist": string[]
 }`;
 
   const BatchSchema = z.array(TraderPersonaSchema).length(batchSize);
   try {
     return await generateStructuredWithRetry(prompt, BatchSchema, 0.8);
   } catch {
-    // Fallback: generate with relaxed schema
     const RelaxedSchema = z.array(z.any()).min(1);
     const raw = await generateStructuredWithRetry(prompt, RelaxedSchema, 0.8);
     return (raw as any[]).map((p, i) => ({
@@ -118,10 +205,7 @@ Schema for each trader:
   }
 }
 
-export async function generateAllPersonas(
-  n: number,
-  strategies: string[]
-): Promise<TraderPersona[]> {
+export async function generateAllPersonas(n: number, strategies: string[]): Promise<TraderPersona[]> {
   const personas: TraderPersona[] = [];
   const batchSize = 10;
   const batches = Math.ceil(n / batchSize);
@@ -129,10 +213,9 @@ export async function generateAllPersonas(
   for (let i = 0; i < batches; i++) {
     const cluster = ARCHETYPE_CLUSTERS[i % ARCHETYPE_CLUSTERS.length];
     const size = Math.min(batchSize, n - personas.length);
-    console.log(`  Generating persona batch ${i + 1}/${batches} (${cluster})...`);
+    console.log(`  Batch ${i + 1}/${batches} (${cluster})...`);
     try {
       const batch = await generatePersonaBatch(cluster, strategies, personas.length, size);
-      // Override watchlist with deterministic version to ensure exactly 30
       const processed = batch.map((p, j) => ({
         ...p,
         watchlist: generateWatchlist(personas.length + j),
@@ -140,18 +223,17 @@ export async function generateAllPersonas(
       personas.push(...processed);
     } catch (e) {
       console.error(`  Batch ${i + 1} failed:`, e);
-      // Fill with fallbacks
       for (let j = 0; j < size; j++) {
         const idx = personas.length;
         personas.push({
           name: `Trader ${idx + 1}`,
           age: 30 + (idx % 40),
-          background: "Independent retail trader with several years of experience.",
+          background: "Independent retail trader.",
           personalityTraits: ["disciplined", "analytical"],
           riskTolerance: "medium",
           preferredStrategy: strategies[idx % strategies.length],
           tradingStyle: "signal-follower",
-          quirks: ["strictly follows technical signals"],
+          quirks: ["follows signals strictly"],
           decisionTemperature: 0.3,
           convictionMultiplier: 1.0,
           description: "A methodical trader who follows quantitative signals.",
@@ -159,13 +241,8 @@ export async function generateAllPersonas(
         });
       }
     }
-    // Rate limit between batches
-    if (i < batches - 1) await sleep(2000);
+    if (i < batches - 1) await new Promise((r) => setTimeout(r, 2000));
   }
 
   return personas.slice(0, n);
-}
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
 }

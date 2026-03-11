@@ -1,0 +1,54 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { SimDB } from "@/lib/db/repository";
+import { getFileStore, type TickerBelief } from "@/lib/fileStore";
+
+const db = new SimDB();
+const fileStore = getFileStore();
+
+const CreateAgentSchema = z.object({
+  identity: z.string().min(50),
+  strategy: z.string().min(50),
+  beliefs: z.record(z.string(), z.any()).optional().default({}),
+  name: z.string().min(1),
+  strategyName: z.string().min(1),
+});
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const parsed = CreateAgentSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
+    }
+
+    const { identity, strategy, beliefs, name, strategyName } = parsed.data;
+
+    // Insert DB row
+    const agentId = await db.insertAgent({
+      name,
+      strategy_name: strategyName,
+      initial_cash: 100_000,
+      is_active: true,
+    });
+
+    // Initialize agent state
+    await db.upsertAgentState({
+      agent_id: agentId,
+      cash: 100_000,
+      portfolio_value: 100_000,
+      total_pnl: 0,
+      last_run_date: null,
+      run_count: 0,
+    });
+
+    // Write soul files
+    await fileStore.initializeAgentDir(agentId, identity, strategy, beliefs as Record<string, TickerBelief>);
+
+    return NextResponse.json({ agentId, agentDir: `data/agents/agent_${String(agentId).padStart(3, "0")}` });
+  } catch (e) {
+    console.error("Create agent error:", e);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

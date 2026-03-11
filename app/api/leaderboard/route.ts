@@ -3,10 +3,11 @@ import { SimDB } from "@/lib/db/repository";
 
 export const dynamic = "force-dynamic";
 
-export function GET() {
+const db = new SimDB();
+
+export async function GET() {
   try {
-    const db = new SimDB();
-    const rows = db.getLeaderboard(100);
+    const rows = await db.getLeaderboard(100);
     const leaderboard = rows.map((r: any, i: number) => ({
       rank: i + 1,
       id: r.id,

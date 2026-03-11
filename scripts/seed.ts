@@ -1,12 +1,13 @@
 #!/usr/bin/env tsx
 /**
- * Seed the simulation database with trader personas.
+ * Seed the simulation with trader personas + agent soul files.
  * Usage: tsx scripts/seed.ts [--n 5]
  */
 
 import "dotenv/config";
 import { SimDB } from "../lib/db/repository";
-import { generateAllPersonas } from "../lib/persona";
+import { FileStore, PgFileStore } from "../lib/fileStore";
+import { generateAllPersonas, formatIdentityMd, formatStrategyMd } from "../lib/persona";
 
 const args = process.argv.slice(2);
 const nArg = args.indexOf("--n");
@@ -15,12 +16,15 @@ const n = nArg !== -1 ? parseInt(args[nArg + 1], 10) : 100;
 const STRATEGIES = ["graham_value", "momentum", "blended"];
 
 async function main() {
-  console.log(`\n🌱 Seeding AiphaLab with ${n} traders...\n`);
+  console.log(`\nSeeding AiphaLab with ${n} traders...\n`);
 
   const db = new SimDB();
+  const fileStore = new FileStore();
+  // Also write to Postgres if FILESTORE_BACKEND=pg (or both)
+  const pgStore = process.env.DATABASE_URL ? new PgFileStore() : null;
 
   // Check if already seeded
-  const existing = db.getAllAgents();
+  const existing = await db.getAllAgents();
   if (existing.length > 0) {
     console.log(`DB already has ${existing.length} agents. Run with a fresh DB to re-seed.`);
     process.exit(0);
@@ -31,19 +35,20 @@ async function main() {
   const personas = await generateAllPersonas(n, STRATEGIES);
   console.log(`Generated ${personas.length} personas.\n`);
 
-  // Insert into DB
-  const now = new Date().toISOString();
-  for (const persona of personas) {
-    const id = db.insertAgent({
+  // Insert each agent into DB + create soul files
+  for (let i = 0; i < personas.length; i++) {
+    const persona = personas[i];
+
+    // Insert minimal DB row (no persona_json — soul is in files)
+    const id = await db.insertAgent({
       name: persona.name,
-      persona_json: JSON.stringify(persona),
       strategy_name: persona.preferredStrategy,
       initial_cash: 100_000,
-      created_at: now,
-      is_active: 1,
+      is_active: true,
     });
 
-    db.upsertAgentState({
+    // Initialize agent state
+    await db.upsertAgentState({
       agent_id: id,
       cash: 100_000,
       portfolio_value: 100_000,
@@ -51,17 +56,36 @@ async function main() {
       last_run_date: null,
       run_count: 0,
     });
+
+    // Write soul files to local fs (for git/dev inspection)
+    const identity = formatIdentityMd(persona);
+    const strategy = formatStrategyMd(persona);
+    await fileStore.initializeAgentDir(id, identity, strategy, {});
+
+    // Also write to Postgres agent_docs (for Vercel+Railway prod)
+    if (pgStore) {
+      await pgStore.initializeAgentDir(id, identity, strategy, {});
+    }
+
+    if ((i + 1) % 10 === 0 || i === personas.length - 1) {
+      console.log(`  Created ${i + 1}/${personas.length} agents...`);
+    }
   }
 
-  console.log(`✅ Seeded ${personas.length} traders into the database.\n`);
-  console.log("Sample traders:");
-  const sample = db.getAllAgents().slice(0, 5);
-  for (const a of sample) {
-    const p = JSON.parse(a.persona_json);
-    console.log(`  [${a.id}] ${a.name} | ${a.strategy_name} | risk: ${p.riskTolerance}`);
+  console.log(`\nSeeded ${personas.length} traders.\n`);
+
+  // Verify
+  const all = await db.getAllAgents();
+  console.log("Sample agents:");
+  for (const a of all.slice(0, 5)) {
+    console.log(`  [${a.id}] ${a.name} | ${a.strategy_name}`);
   }
 
-  console.log("\nNext step: tsx scripts/run.ts --date 2025-01-02\n");
+  console.log("\nVerify soul files:");
+  console.log(`  ls data/agents/agent_001/`);
+  console.log("\nNext steps:");
+  console.log("  pnpm daemon -- --phase marketOpen --date 2025-01-06");
+  console.log("  pnpm dev\n");
 }
 
 main().catch((e) => {

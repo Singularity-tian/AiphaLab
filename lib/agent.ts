@@ -1,15 +1,16 @@
 /**
- * TraderAgent — runs one trader's daily cycle.
+ * TraderAgent — runs one trader's daily cycle (split into temporal phases).
  */
 
 import { z } from "zod";
 import { SimDB } from "./db/repository";
 import { SimulatedBroker } from "./broker";
 import { FMPClient } from "./fmp";
-import { computeBatchSignals, SignalResult } from "./signals";
+import { SignalResult } from "./signals";
 import { generateStructuredWithRetry } from "./llm";
-import { addMemory, searchMemory } from "./mem0";
-import { TraderPersona } from "./persona";
+import { type IFileStore, type TickerBelief } from "./fileStore";
+import { EmbeddingClient } from "./embeddings";
+import { TokenBucket } from "../daemon/rateLimiter";
 
 // ---- Schemas ----
 
@@ -21,14 +22,22 @@ const TradingDecisionSchema = z.object({
   rationale: z.string(),
   overridingSignal: z.boolean(),
 });
-type TradingDecision = z.infer<typeof TradingDecisionSchema>;
+export type TradingDecision = z.infer<typeof TradingDecisionSchema>;
+
+const TradingDecisionsSchema = z.array(TradingDecisionSchema).min(0).max(5);
 
 const DayReviewSchema = z.object({
   mood: z.enum(["bullish", "cautious", "frustrated", "confident", "anxious", "neutral", "euphoric", "depressed"]),
   keyInsight: z.string(),
   fullReview: z.string(),
+  noteToSelf: z.string(),
 });
-type DayReview = z.infer<typeof DayReviewSchema>;
+export type DayReview = z.infer<typeof DayReviewSchema>;
+
+const AlertDecisionSchema = z.object({
+  action: z.enum(["SELL", "HOLD", "SCALE"]),
+  rationale: z.string(),
+});
 
 export interface MarketContext {
   date: string;
@@ -48,110 +57,151 @@ export interface DayResult {
   mood: string;
 }
 
+// ---- Agent config loaded from DB ----
+export interface AgentConfig {
+  id: number;
+  name: string;
+  strategyName: string;
+  initialCash: number;
+  decisionTemperature: number;
+  convictionMultiplier: number;
+}
+
 // ---- TraderAgent ----
 
 export class TraderAgent {
-  private agentId: number;
-  private persona: TraderPersona;
-  private strategy: string;
-  private initialCash: number;
-  private db: SimDB;
-  private fmp: FMPClient;
-
   constructor(
-    agentId: number,
-    persona: TraderPersona,
-    strategy: string,
-    initialCash: number,
-    db: SimDB,
-    fmp: FMPClient
-  ) {
-    this.agentId = agentId;
-    this.persona = persona;
-    this.strategy = strategy;
-    this.initialCash = initialCash;
-    this.db = db;
-    this.fmp = fmp;
-  }
+    private agentId: number,
+    private config: AgentConfig,
+    private db: SimDB,
+    private fmp: FMPClient,
+    private fileStore: IFileStore,
+    private embeddings: EmbeddingClient,
+    private llmBucket: TokenBucket
+  ) {}
 
-  async runDay(marketContext: MarketContext): Promise<DayResult> {
+  // ---- Phase 1: Decision + Trade Execution (09:35 ET) ----
+
+  async runDecisionPhase(
+    marketContext: MarketContext,
+    cachedSignals: Record<string, SignalResult>
+  ): Promise<{ tradesExecuted: number }> {
     const { date } = marketContext;
 
-    // 1. Reconstruct broker from DB
-    const broker = SimulatedBroker.fromDB(this.agentId, this.db);
+    const broker = await SimulatedBroker.fromDB(this.agentId, this.db);
 
-    // 2. Check stop-losses first
-    await broker.checkStopLosses(date, this.fmp);
+    // Check trailing stop-losses first
+    await broker.checkStopLosses(date, this.fmp, 0.2, "marketOpen");
 
-    // 3. Compute signals for watchlist
-    const signals = await computeBatchSignals(
-      this.persona.watchlist,
-      date,
-      this.fmp,
-      this.strategy === "momentum" ? "momentum" : "graham_value"
-    );
+    // Load agent soul files
+    const files = await this.fileStore.loadAgentFiles(this.agentId);
 
-    // 4. Get relevant memories
-    const currentTickers = Array.from(broker.positions.keys());
-    const memoryQuery = `Recent trading decisions, market observations, and stock opinions ${currentTickers.length > 0 ? "about " + currentTickers.slice(0, 3).join(", ") : ""}`;
-    const memories = await searchMemory(this.agentId, memoryQuery);
+    // Search episodic memory
+    const queryText = `Trading decisions and market observations for ${marketContext.marketRegime} regime`;
+    const queryEmbedding = await this.embeddings.embed(queryText);
+    const memories = await this.db.searchEpisodicMemory(this.agentId, queryEmbedding, 5);
 
-    // 5. Build decision prompt
-    const prompt = this._buildDecisionPrompt(signals, broker, memories, marketContext);
+    // Build decision prompt
+    const prompt = this._buildDecisionPrompt(files, cachedSignals, memories.map((m) => m.content), broker, marketContext);
 
-    // 6. Get LLM trading decision
-    let decision: TradingDecision;
+    // Rate-limit LLM calls
+    await this.llmBucket.waitForToken();
+
+    let decisions: TradingDecision[];
     try {
-      decision = await generateStructuredWithRetry(
-        prompt,
-        TradingDecisionSchema,
-        this.persona.decisionTemperature
-      );
+      decisions = await generateStructuredWithRetry(prompt, TradingDecisionsSchema, this.config.decisionTemperature);
     } catch {
-      decision = { action: "HOLD", conviction: 0.5, rationale: "Unable to decide today.", overridingSignal: false };
+      decisions = [];
     }
 
-    // 7. Execute trade
     let tradesExecuted = 0;
-    if (decision.action === "BUY" && decision.ticker) {
-      const maxCash = broker.cash * 0.9;
-      const rawAmount = decision.dollarAmount ?? maxCash * 0.25;
-      const adjustedAmount = rawAmount * this.persona.convictionMultiplier;
-      const finalAmount = Math.min(adjustedAmount, maxCash * 0.4);
 
-      const result = await broker.buy(
-        decision.ticker,
-        finalAmount,
-        date,
-        this.fmp,
-        decision.overridingSignal ? "LLM_OVERRIDE" : "SIGNAL_ENTRY",
-        decision.rationale,
-        signals[decision.ticker]?.combined ?? null
-      );
-      if (result.success) tradesExecuted++;
-    } else if (decision.action === "SELL" && decision.ticker) {
-      const result = await broker.sell(
-        decision.ticker,
-        date,
-        this.fmp,
-        decision.overridingSignal ? "LLM_OVERRIDE" : "SIGNAL_EXIT",
-        decision.rationale
-      );
-      if (result.success) tradesExecuted++;
+    for (const decision of decisions) {
+      if (decision.action === "BUY" && decision.ticker) {
+        const maxCash = broker.cash * 0.9;
+        const rawAmount = decision.dollarAmount ?? maxCash * 0.25;
+        const adjustedAmount = rawAmount * this.config.convictionMultiplier;
+        const finalAmount = Math.min(adjustedAmount, maxCash * 0.4);
+
+        const result = await broker.buy(
+          decision.ticker,
+          finalAmount,
+          date,
+          this.fmp,
+          decision.overridingSignal ? "LLM_OVERRIDE" : "SIGNAL_ENTRY",
+          decision.rationale,
+          cachedSignals[decision.ticker]?.combined ?? null,
+          "marketOpen"
+        );
+        if (result.success) {
+          tradesExecuted++;
+          await this.fileStore.updateTickerBelief(this.agentId, decision.ticker, {
+            thesis: decision.rationale,
+            sentiment: "bullish",
+            confidence: decision.conviction,
+            lastTrade: {
+              side: "BUY",
+              date,
+              price: result.price,
+              outcome: null,
+              pnl: null,
+            },
+          });
+        }
+      } else if (decision.action === "SELL" && decision.ticker) {
+        const result = await broker.sell(
+          decision.ticker,
+          date,
+          this.fmp,
+          decision.overridingSignal ? "LLM_OVERRIDE" : "SIGNAL_EXIT",
+          decision.rationale,
+          "marketOpen"
+        );
+        if (result.success) {
+          tradesExecuted++;
+          await this.fileStore.updateTickerBelief(this.agentId, decision.ticker, {
+            sentiment: "bearish",
+            confidence: decision.conviction,
+            lastTrade: {
+              side: "SELL",
+              date,
+              price: result.price,
+              outcome: null,
+              pnl: null,
+            },
+          });
+        }
+      }
     }
 
-    // 8. Persist trades + positions
-    broker.persistToDB(this.db, date);
+    await broker.persistToDB(this.db, date);
 
-    // 9. Compute portfolio value and write snapshot
+    return { tradesExecuted };
+  }
+
+  // ---- Phase 2: Review + Memory (16:30 ET) ----
+
+  async runReviewPhase(marketContext: MarketContext): Promise<DayReview> {
+    const { date } = marketContext;
+
+    const broker = await SimulatedBroker.fromDB(this.agentId, this.db);
     const portfolioValue = await broker.getPortfolioValue(date, this.fmp);
     const positionValue = portfolioValue - broker.cash;
-    const prevSnapshot = this.db.getLatestSnapshot(this.agentId);
-    const prevValue = prevSnapshot?.portfolio_value ?? this.initialCash;
-    const dailyReturn = prevValue > 0 ? (portfolioValue - prevValue) / prevValue : 0;
-    const cumulativeReturn = (portfolioValue - this.initialCash) / this.initialCash;
 
-    this.db.insertSnapshot({
+    const [todayTrades, prevSnapshot, files] = await Promise.all([
+      this.db.getTradesByDate(this.agentId, date),
+      this.db.getLatestSnapshot(this.agentId),
+      this.fileStore.loadAgentFiles(this.agentId),
+    ]);
+
+    const prevValue = prevSnapshot?.portfolio_value
+      ? Number(prevSnapshot.portfolio_value)
+      : this.config.initialCash;
+    const dailyReturn = prevValue > 0 ? (portfolioValue - prevValue) / prevValue : 0;
+    const cumulativeReturn = (portfolioValue - this.config.initialCash) / this.config.initialCash;
+
+    // Write EOD snapshot
+    await this.db.insertSnapshot({
       agent_id: this.agentId,
       date,
       portfolio_value: portfolioValue,
@@ -162,19 +212,21 @@ export class TraderAgent {
       cumulative_return: cumulativeReturn,
     });
 
-    // 10. Update agent state
-    this.db.upsertAgentState({
+    // Update agent state
+    const currentState = await this.db.getAgentState(this.agentId);
+    await this.db.upsertAgentState({
       agent_id: this.agentId,
       cash: broker.cash,
       portfolio_value: portfolioValue,
-      total_pnl: portfolioValue - this.initialCash,
+      total_pnl: portfolioValue - this.config.initialCash,
       last_run_date: date,
-      run_count: (this.db.getAgentState(this.agentId)?.run_count ?? 0) + 1,
+      run_count: (currentState?.run_count ?? 0) + 1,
     });
 
-    // 11. Generate daily review
-    const todayTrades = this.db.getTradesByDate(this.agentId, date);
-    const reviewPrompt = this._buildReviewPrompt(todayTrades, dailyReturn, portfolioValue, marketContext);
+    // Build review prompt
+    const reviewPrompt = this._buildReviewPrompt(files, todayTrades, dailyReturn, portfolioValue, broker, marketContext);
+
+    await this.llmBucket.waitForToken();
 
     let review: DayReview;
     try {
@@ -183,169 +235,275 @@ export class TraderAgent {
       review = {
         mood: "neutral",
         keyInsight: "Markets moved today.",
-        fullReview: `${this.persona.name} reflected on the day's trading without strong conclusions.`,
+        fullReview: `${this.config.name} reflected on the day's trading.`,
+        noteToSelf: "Stay disciplined.",
       };
     }
 
-    // 12. Store review in mem0
-    await addMemory(this.agentId, review.fullReview);
+    // Write journal file
+    const journalContent = this._formatJournal(date, review, todayTrades, dailyReturn, portfolioValue, broker, marketContext);
+    await this.fileStore.writeJournal(this.agentId, date, journalContent);
 
-    // 13. Persist review to DB
-    this.db.upsertReview({
-      agent_id: this.agentId,
-      date,
-      review_text: review.fullReview,
-      mood: review.mood,
-    });
+    // Embed and store in episodic memory
+    const embedding = await this.embeddings.embed(review.fullReview);
+    await this.db.insertMemory(this.agentId, review.fullReview, embedding, "daily_review");
 
+    return review;
+  }
+
+  // ---- Alert Response (called by priceMonitor) ----
+
+  async respondToAlert(
+    alert: { id: number; ticker: string; pct_change: number; price: number; alert_type: string },
+    marketContext: MarketContext
+  ): Promise<{ sold: boolean; rationale: string }> {
+    const broker = await SimulatedBroker.fromDB(this.agentId, this.db);
+
+    // Only respond if we hold this ticker
+    if (!broker.positions.has(alert.ticker)) {
+      return { sold: false, rationale: "not_holding" };
+    }
+
+    const files = await this.fileStore.loadAgentFiles(this.agentId);
+    const belief = files.beliefs[alert.ticker];
+
+    const prompt = `You are ${this.config.name}.
+
+Your strategy:
+${files.strategy}
+
+Your belief about ${alert.ticker}:
+${JSON.stringify(belief ?? {}, null, 2)}
+
+ALERT: ${alert.ticker} has moved ${(alert.pct_change * 100).toFixed(1)}% (${alert.alert_type}).
+Current price: $${alert.price}
+
+Do you SELL now (protect gains/cut losses), HOLD (wait it out), or SCALE (add more)?
+Respond with JSON: { "action": "SELL" | "HOLD" | "SCALE", "rationale": "..." }`;
+
+    await this.llmBucket.waitForToken();
+
+    let decision: z.infer<typeof AlertDecisionSchema>;
+    try {
+      decision = await generateStructuredWithRetry(prompt, AlertDecisionSchema, 0.5);
+    } catch {
+      return { sold: false, rationale: "llm_error" };
+  }
+
+    if (decision.action === "SELL") {
+      const result = await broker.sell(
+        alert.ticker,
+        marketContext.date,
+        this.fmp,
+        `ALERT_${alert.alert_type.toUpperCase()}`,
+        decision.rationale,
+        "priceMonitor"
+      );
+      if (result.success) {
+        await broker.persistToDB(this.db, marketContext.date);
+        await this.fileStore.updateTickerBelief(this.agentId, alert.ticker, {
+          sentiment: "bearish",
+          notes: `Sold on alert: ${alert.alert_type} at ${(alert.pct_change * 100).toFixed(1)}%`,
+        });
+        return { sold: true, rationale: decision.rationale };
+      }
+    }
+
+    return { sold: false, rationale: decision.rationale };
+  }
+
+  // ---- Backward-compat wrapper ----
+
+  async runDay(marketContext: MarketContext): Promise<DayResult> {
+    // Compute signals inline (no cache)
+    const { computeBatchSignals } = await import("./signals");
+    const files = await this.fileStore.loadAgentFiles(this.agentId);
+    // Parse watchlist from strategy.md (simple approach: look for ticker-like words)
+    const watchlist = this._parseWatchlistFromStrategy(files.strategy);
+    const signals = await computeBatchSignals(
+      watchlist,
+      marketContext.date,
+      this.fmp,
+      this.config.strategyName.includes("momentum") ? "momentum" : "graham_value"
+    );
+
+    const { tradesExecuted } = await this.runDecisionPhase(marketContext, signals);
+    const review = await this.runReviewPhase(marketContext);
+
+    const snapshot = await this.db.getLatestSnapshot(this.agentId);
     return {
       agentId: this.agentId,
-      name: this.persona.name,
-      date,
+      name: this.config.name,
+      date: marketContext.date,
       tradesExecuted,
-      portfolioValue,
-      cumulativeReturn,
+      portfolioValue: snapshot?.portfolio_value ? Number(snapshot.portfolio_value) : this.config.initialCash,
+      cumulativeReturn: snapshot?.cumulative_return ? Number(snapshot.cumulative_return) : 0,
       mood: review.mood,
     };
   }
 
+  // ---- Private helpers ----
+
   private _buildDecisionPrompt(
+    files: Awaited<ReturnType<IFileStore["loadAgentFiles"]>>,
     signals: Record<string, SignalResult>,
-    broker: SimulatedBroker,
     memories: string[],
+    broker: SimulatedBroker,
     ctx: MarketContext
   ): string {
-    const { persona } = this;
-
-    // Format top signals (exclude already-held positions)
     const heldTickers = new Set(broker.positions.keys());
-    const topBuyCandidates = Object.entries(signals)
+    const topBuys = Object.entries(signals)
       .filter(([t]) => !heldTickers.has(t))
       .sort((a, b) => b[1].combined - a[1].combined)
-      .slice(0, 5);
-
-    const topSellCandidates = Array.from(broker.positions.keys()).map((t) => ({
-      ticker: t,
-      signal: signals[t]?.combined ?? 0.5,
-      pos: broker.positions.get(t)!,
-    }));
-
-    const signalText = [
-      "TOP BUY CANDIDATES (factor score 0-1, higher=more bullish):",
-      ...topBuyCandidates.map(
-        ([t, s]) => `  ${t}: score=${s.combined.toFixed(2)}, confidence=${s.confidence.toFixed(2)}`
-      ),
-      "",
-      "CURRENT HOLDINGS (factor score = sell signal if low):",
-      ...topSellCandidates.map(
-        (h) =>
-          `  ${h.ticker}: score=${h.signal.toFixed(2)}, unrealized P&L approx ${(((signals[h.ticker]?.combined ?? 0.5) - 0.5) * 20).toFixed(1)}%`
-      ),
-      topSellCandidates.length === 0 ? "  (no open positions)" : "",
-    ]
-      .filter((l) => l !== "  (no open positions)" || topSellCandidates.length === 0)
+      .slice(0, 8)
+      .map(([t, s]) => `${t}: graham=${(s.factors.graham ?? s.combined).toFixed(2)} momentum=${(s.factors.momentum ?? s.combined).toFixed(2)} combined=${s.combined.toFixed(2)}`)
       .join("\n");
 
-    const memoriesText =
-      memories.length > 0
-        ? `\nYOUR RELEVANT MEMORIES:\n${memories.map((m) => `  - ${m}`).join("\n")}\n`
-        : "";
+    const holdings = Array.from(broker.positions.keys())
+      .map((t) => {
+        const s = signals[t];
+        return `${t}: combined=${s?.combined.toFixed(2) ?? "N/A"}`;
+      })
+      .join("\n") || "(none)";
 
-    const behaviorText = this._getBehavioralConstraints();
+    return `<identity>
+${files.identity}
+</identity>
 
-    return `You are ${persona.name}, age ${persona.age}.
-Background: ${persona.background}
-Personality traits: ${persona.personalityTraits.join(", ")}
-Risk tolerance: ${persona.riskTolerance}
-Trading style: ${persona.tradingStyle}
-Your quirks: ${persona.quirks.join("; ")}
+<strategy>
+${files.strategy}
+</strategy>
 
-${behaviorText}
+<beliefs>
+${JSON.stringify(files.beliefs, null, 2)}
+</beliefs>
 
-MARKET CONTEXT (${ctx.date}):
-  SPY 1-day return: ${(ctx.spyReturn1d * 100).toFixed(2)}%
-  SPY 5-day return: ${(ctx.spyReturn5d * 100).toFixed(2)}%
-  Market regime: ${ctx.marketRegime}
-  ${ctx.vixLevel ? `VIX: ${ctx.vixLevel.toFixed(1)}` : ""}
+<recent_journals>
+${files.recentJournals.join("\n---\n")}
+</recent_journals>
 
-YOUR PORTFOLIO:
-  Cash available: $${broker.cash.toLocaleString("en", { maximumFractionDigits: 0 })}
-  Open positions: ${broker.positions.size}
-${memoriesText}
-SIGNALS:
-${signalText}
+<episodic_memories>
+${memories.map((m) => `- ${m}`).join("\n") || "(none yet)"}
+</episodic_memories>
 
-Based on your personality, memories, and the signals above — what do you do TODAY?
+<current_portfolio>
+Cash: $${broker.cash.toLocaleString("en", { maximumFractionDigits: 0 })}
+Positions: ${broker.positions.size}
+</current_portfolio>
 
-Choose ONE action:
-- BUY a specific ticker (give ticker and dollarAmount)
-- SELL a specific ticker you currently hold
-- HOLD (do nothing today)
+<market_context>
+Date: ${ctx.date}
+SPY 1d: ${(ctx.spyReturn1d * 100).toFixed(2)}%
+SPY 5d: ${(ctx.spyReturn5d * 100).toFixed(2)}%
+VIX: ${ctx.vixLevel ?? "N/A"}
+Regime: ${ctx.marketRegime}
+</market_context>
 
-Respond with JSON:
-{
-  "action": "BUY" | "SELL" | "HOLD",
-  "ticker": "AAPL",  // required for BUY/SELL
-  "conviction": 0.0-1.0,
-  "dollarAmount": 5000,  // for BUY only
-  "rationale": "1-2 sentence explanation in your voice",
-  "overridingSignal": false  // true if you're going against the quantitative signal
-}`;
-  }
+<today_signals>
+TOP BUY CANDIDATES:
+${topBuys}
 
-  private _getBehavioralConstraints(): string {
-    const { persona } = this;
-    const lines: string[] = [];
+CURRENT HOLDINGS:
+${holdings}
+</today_signals>
 
-    if (persona.riskTolerance === "reckless") {
-      lines.push("You tend to oversize positions and often ignore signals that don't match your gut.");
-    } else if (persona.riskTolerance === "low") {
-      lines.push("You need very high conviction before entering. When uncertain, you stay in cash.");
-    }
+<task>
+You are ${this.config.name}. Based on your identity, strategy, beliefs, recent experience, and today's signals, decide your trading actions.
 
-    if (persona.personalityTraits.some((t) => t.toLowerCase().includes("contrarian"))) {
-      lines.push("You are skeptical of consensus. When a signal is very high, you look for the catch.");
-    }
-    if (persona.personalityTraits.some((t) => t.toLowerCase().includes("fomo"))) {
-      lines.push("When you see strong upward momentum, you feel compelled to act even without a full signal.");
-    }
-    if (persona.personalityTraits.some((t) => t.toLowerCase().includes("discipline"))) {
-      lines.push("You strictly follow signals and rarely deviate from your system.");
-    }
+Return a JSON array of TradingDecision objects (can be empty array if holding).
+You may return multiple decisions (e.g., sell one and buy another).
+Each must include a rationale grounded in your strategy document.
 
-    return lines.length > 0 ? "BEHAVIORAL NOTES:\n" + lines.map((l) => `  - ${l}`).join("\n") : "";
+Schema: [{ "action": "BUY"|"SELL"|"HOLD", "ticker": "AAPL", "conviction": 0.0-1.0, "dollarAmount": 5000, "rationale": "...", "overridingSignal": false }]
+</task>`;
   }
 
   private _buildReviewPrompt(
+    files: Awaited<ReturnType<IFileStore["loadAgentFiles"]>>,
     trades: any[],
     dailyReturn: number,
     portfolioValue: number,
+    broker: SimulatedBroker,
     ctx: MarketContext
   ): string {
-    const { persona } = this;
-    const tradeStr =
-      trades.length > 0
-        ? trades
-            .map((t) => `  ${t.side} ${t.shares} shares of ${t.ticker} @ $${t.price.toFixed(2)} (${t.reason})`)
-            .join("\n")
-        : "  No trades today.";
+    const tradeStr = trades.length > 0
+      ? trades.map((t) => `  ${t.side} ${t.shares} ${t.ticker} @ $${Number(t.price).toFixed(2)} (${t.reason})`).join("\n")
+      : "  No trades today.";
 
-    return `You are ${persona.name}. Today is ${ctx.date}.
+    return `<identity>
+${files.identity}
+</identity>
 
-Your trades today:
+<strategy>
+${files.strategy}
+</strategy>
+
+You are ${this.config.name}. Today is ${ctx.date}.
+
+Trades today:
 ${tradeStr}
 
-Your daily return: ${(dailyReturn * 100).toFixed(2)}%
-Portfolio value: $${portfolioValue.toLocaleString("en", { maximumFractionDigits: 0 })}
-Market: SPY ${(ctx.spyReturn1d * 100).toFixed(2)}% today, regime: ${ctx.marketRegime}
+Portfolio: $${portfolioValue.toLocaleString("en", { maximumFractionDigits: 0 })} | Cash: $${broker.cash.toLocaleString("en", { maximumFractionDigits: 0 })} | Positions: ${broker.positions.size}
+Daily return: ${(dailyReturn * 100).toFixed(2)}%
+Market: SPY ${(ctx.spyReturn1d * 100).toFixed(2)}% | Regime: ${ctx.marketRegime}
 
-Write a brief end-of-day journal entry in your own voice. Reflect on what happened, how you feel, and any lessons or updated beliefs.
+Write your end-of-day journal entry. Reflect in your own voice. What happened? What did you learn? What will you do differently?
 
 Respond with JSON:
 {
-  "mood": "bullish" | "cautious" | "frustrated" | "confident" | "anxious" | "neutral" | "euphoric" | "depressed",
-  "keyInsight": "one-sentence key takeaway",
-  "fullReview": "3-5 sentence journal entry in your voice"
+  "mood": "bullish"|"cautious"|"frustrated"|"confident"|"anxious"|"neutral"|"euphoric"|"depressed",
+  "keyInsight": "one sentence",
+  "fullReview": "3-5 sentence journal entry in your voice",
+  "noteToSelf": "specific actionable reminder for future decisions"
 }`;
+  }
+
+  private _formatJournal(
+    date: string,
+    review: DayReview,
+    trades: any[],
+    dailyReturn: number,
+    portfolioValue: number,
+    broker: SimulatedBroker,
+    ctx: MarketContext
+  ): string {
+    const tradeLines = trades.length > 0
+      ? trades.map((t) => `- ${t.side} ${t.shares} ${t.ticker} @ $${Number(t.price).toFixed(2)} — ${t.reason}`).join("\n")
+      : "- No trades today.";
+
+    return `# ${date} — Daily Review
+
+## Mood: ${review.mood}
+
+## Market Context
+SPY ${(ctx.spyReturn1d * 100).toFixed(2)}% today (5d: ${(ctx.spyReturn5d * 100).toFixed(2)}%) | VIX: ${ctx.vixLevel ?? "N/A"} | Regime: ${ctx.marketRegime}
+
+## Trades Today
+${tradeLines}
+
+## Portfolio Status
+- Cash: $${broker.cash.toLocaleString("en", { maximumFractionDigits: 0 })} | Positions: ${broker.positions.size} | Total value: $${portfolioValue.toLocaleString("en", { maximumFractionDigits: 0 })}
+- Daily return: ${(dailyReturn * 100).toFixed(2)}%
+
+## Reflection
+${review.fullReview}
+
+## Note to Self
+${review.noteToSelf}
+`;
+  }
+
+  private _parseWatchlistFromStrategy(strategyMd: string): string[] {
+    // Extract all-caps 1-5 char words that look like tickers
+    const matches = strategyMd.match(/\b[A-Z]{1,5}\b/g) ?? [];
+    const seen = new Set<string>();
+    const tickers: string[] = [];
+    for (const m of matches) {
+      if (!seen.has(m) && m.length >= 1) {
+        seen.add(m);
+        tickers.push(m);
+      }
+    }
+    return tickers.slice(0, 30);
   }
 }

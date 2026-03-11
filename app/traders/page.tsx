@@ -3,24 +3,47 @@ import TraderCard from "@/components/TraderCard";
 async function getAgents() {
   try {
     const { SimDB } = await import("@/lib/db/repository");
+    const { FileStore } = await import("@/lib/fileStore");
     const db = new SimDB();
-    const agents = db.getAllAgents();
-    return agents.map((a) => {
-      const persona = JSON.parse(a.persona_json);
-      const state = db.getAgentState(a.id);
-      const review = db.getLatestReview(a.id);
-      const snap = db.getLatestSnapshot(a.id);
-      return {
-        id: a.id,
-        name: a.name,
-        strategy: a.strategy_name,
-        riskTolerance: persona.riskTolerance ?? "medium",
-        cumulativeReturn: snap?.cumulative_return ?? 0,
-        dailyReturn: snap?.daily_return ?? 0,
-        mood: review?.mood ?? "neutral",
-        runCount: state?.run_count ?? 0,
-      };
-    }).sort((a, b) => b.cumulativeReturn - a.cumulativeReturn);
+    const fileStore = new FileStore();
+    const agents = await db.getAllAgents();
+
+    const results = await Promise.all(
+      agents.map(async (a) => {
+        const [state, snap] = await Promise.all([
+          db.getAgentState(a.id),
+          db.getLatestSnapshot(a.id),
+        ]);
+
+        let riskTolerance = "medium";
+        let mood = "neutral";
+        try {
+          const identity = await fileStore.loadIdentity(a.id);
+          const riskMatch = identity.match(/Risk tolerance:\s*(\w+)/i);
+          if (riskMatch) riskTolerance = riskMatch[1];
+
+          const dates = await fileStore.listJournalDates(a.id);
+          if (dates.length > 0) {
+            const journal = await fileStore.readJournal(a.id, dates[dates.length - 1]);
+            const moodMatch = journal?.match(/## Mood:\s*(\w+)/i);
+            if (moodMatch) mood = moodMatch[1];
+          }
+        } catch {}
+
+        return {
+          id: a.id,
+          name: a.name,
+          strategy: a.strategy_name,
+          riskTolerance,
+          cumulativeReturn: snap?.cumulative_return ?? 0,
+          dailyReturn: snap?.daily_return ?? 0,
+          mood,
+          runCount: state?.run_count ?? 0,
+        };
+      })
+    );
+
+    return results.sort((a, b) => b.cumulativeReturn - a.cumulativeReturn);
   } catch {
     return [];
   }
