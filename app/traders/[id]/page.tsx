@@ -2,6 +2,8 @@ import PersonaBadge from "@/components/PersonaBadge";
 import DailyReview from "@/components/DailyReview";
 import TradeLog from "@/components/TradeLog";
 import EquityCurve from "@/components/EquityCurve";
+import BeliefTable from "@/components/BeliefTable";
+import StrategyView from "@/components/StrategyView";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -49,10 +51,18 @@ async function getTraderData(id: number) {
 
   let persona = parseIdentityMd("", agent.name, agent.strategy_name);
   let review: { date: string; review_text: string; mood: string | null } | null = null;
+  let beliefs: Record<string, import("@/lib/fileStore").TickerBelief> = {};
+  let strategyMd = "";
 
   try {
-    const identityContent = await fileStore.loadIdentity(id);
+    const [identityContent, loadedBeliefs, loadedStrategy] = await Promise.all([
+      fileStore.loadIdentity(id),
+      fileStore.loadBeliefs(id),
+      fileStore.loadStrategy(id),
+    ]);
     persona = parseIdentityMd(identityContent, agent.name, agent.strategy_name);
+    beliefs = loadedBeliefs;
+    strategyMd = loadedStrategy;
 
     const dates = await fileStore.listJournalDates(id);
     if (dates.length > 0) {
@@ -72,7 +82,7 @@ async function getTraderData(id: number) {
     }
   } catch {}
 
-  return { agent, persona, state, review, snapshots, trades, positions };
+  return { agent, persona, state, review, snapshots, trades, positions, beliefs, strategyMd };
 }
 
 const KPI = ({ label, value, color }: { label: string; value: string; color?: string }) => (
@@ -117,7 +127,7 @@ export default async function TraderProfilePage({ params }: Props) {
     );
   }
 
-  const { agent, persona, state, review, snapshots, trades, positions } = data;
+  const { agent, persona, state, review, snapshots, trades, positions, beliefs, strategyMd } = data;
   const snap = snapshots[snapshots.length - 1];
   const portfolioValue = snap?.portfolio_value ?? agent.initial_cash;
   const totalReturn = snap?.cumulative_return ?? 0;
@@ -220,10 +230,11 @@ export default async function TraderProfilePage({ params }: Props) {
           marginBottom: 32,
         }}
       >
-        {/* Left: persona + review */}
+        {/* Left: persona + review + strategy */}
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <PersonaBadge persona={persona} />
           <DailyReview review={review} />
+          {strategyMd && <StrategyView strategy={strategyMd} />}
         </div>
 
         {/* Right: equity curve + positions */}
@@ -321,6 +332,16 @@ export default async function TraderProfilePage({ params }: Props) {
           )}
         </div>
       </div>
+
+      {/* Beliefs */}
+      {Object.keys(beliefs).length > 0 && (
+        <>
+          {sectionTitle("Ticker Beliefs")}
+          <div style={{ marginBottom: 32 }}>
+            <BeliefTable beliefs={beliefs} />
+          </div>
+        </>
+      )}
 
       {/* Trade log */}
       {sectionTitle("Trade History")}
