@@ -129,6 +129,11 @@ export class SimDB {
     return (rows[0] as unknown as AgentRow) ?? null;
   }
 
+  async deleteAgent(id: number): Promise<void> {
+    await this.sql`DELETE FROM agent_state WHERE agent_id = ${id}`;
+    await this.sql`DELETE FROM agents WHERE id = ${id}`;
+  }
+
   // ---- agent_state ----
   async upsertAgentState(s: AgentStateRow): Promise<void> {
     await this.sql`

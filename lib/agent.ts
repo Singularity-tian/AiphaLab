@@ -109,9 +109,12 @@ export class TraderAgent {
     let decisions: TradingDecision[];
     try {
       decisions = await generateStructuredWithRetry(prompt, TradingDecisionsSchema, this.config.decisionTemperature);
-    } catch {
+    } catch (e) {
+      console.error(`[agent ${this.agentId}] LLM decision failed:`, (e as Error).message);
       decisions = [];
     }
+
+    console.log(`[agent ${this.agentId}] ${decisions.length} decisions: ${decisions.map(d => `${d.action} ${d.ticker ?? ''}`).join(', ') || 'HOLD'}`);
 
     let tradesExecuted = 0;
 
@@ -146,6 +149,8 @@ export class TraderAgent {
               pnl: null,
             },
           });
+        } else {
+          console.warn(`[agent ${this.agentId}] Buy ${decision.ticker} failed: ${result.error}`);
         }
       } else if (decision.action === "SELL" && decision.ticker) {
         const result = await broker.sell(
@@ -169,6 +174,8 @@ export class TraderAgent {
               pnl: null,
             },
           });
+        } else {
+          console.warn(`[agent ${this.agentId}] Sell ${decision.ticker} failed: ${result.error}`);
         }
       }
     }
@@ -230,7 +237,8 @@ export class TraderAgent {
     let review: DayReview;
     try {
       review = await generateStructuredWithRetry(reviewPrompt, DayReviewSchema, 0.7);
-    } catch {
+    } catch (e) {
+      console.error(`[agent ${this.agentId}] LLM review failed:`, (e as Error).message);
       review = {
         mood: "neutral",
         keyInsight: "Markets moved today.",
@@ -285,7 +293,8 @@ Respond with JSON: { "action": "SELL" | "HOLD" | "SCALE", "rationale": "..." }`;
     let decision: z.infer<typeof AlertDecisionSchema>;
     try {
       decision = await generateStructuredWithRetry(prompt, AlertDecisionSchema, 0.5);
-    } catch {
+    } catch (e) {
+      console.error(`[agent ${this.agentId}] LLM alert decision failed:`, (e as Error).message);
       return { sold: false, rationale: "llm_error" };
   }
 

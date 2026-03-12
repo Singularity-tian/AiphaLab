@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { SP500_UNIVERSE, ARCHETYPE_CLUSTERS } from "@/lib/persona";
 
 interface CreateTraderSheetProps {
@@ -30,6 +30,7 @@ export function CreateTraderSheet({ open, onClose, onCreated }: CreateTraderShee
   const [error, setError] = useState<string | null>(null);
   const [beliefsError, setBeliefsError] = useState<string | null>(null);
   const [showTickers, setShowTickers] = useState(false);
+  const submittingRef = useRef(false);
 
   const extractNameFromIdentity = (md: string): string => {
     const match = md.match(/^#\s+([^—\n]+)/m);
@@ -94,12 +95,14 @@ export function CreateTraderSheet({ open, onClose, onCreated }: CreateTraderShee
   };
 
   const handleSubmit = async () => {
+    if (submittingRef.current) return;
     if (!identity.trim() || !strategy.trim() || !name.trim()) {
       setError("Identity, strategy, and name are required");
       return;
     }
     if (beliefsError) { setError("Fix beliefs JSON first"); return; }
 
+    submittingRef.current = true;
     setSubmitting(true);
     setError(null);
     try {
@@ -124,6 +127,7 @@ export function CreateTraderSheet({ open, onClose, onCreated }: CreateTraderShee
     } catch {
       setError("Network error creating agent");
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
