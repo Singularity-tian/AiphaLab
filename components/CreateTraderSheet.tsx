@@ -17,7 +17,7 @@ export function CreateTraderSheet({ open, onClose, onCreated }: CreateTraderShee
   const [strategy, setStrategy] = useState("");
   const [beliefs, setBeliefs] = useState("{}");
   const [name, setName] = useState("");
-  const [strategyName, setStrategyName] = useState("blended");
+
   const [selectedArchetype, setSelectedArchetype] = useState(ARCHETYPE_CLUSTERS[0]);
   const [generating, setGenerating] = useState<"identity" | "strategy" | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -104,7 +104,7 @@ export function CreateTraderSheet({ open, onClose, onCreated }: CreateTraderShee
           strategy,
           beliefs: JSON.parse(beliefs),
           name,
-          strategyName,
+
         }),
       });
       const data = await res.json();
@@ -126,7 +126,7 @@ export function CreateTraderSheet({ open, onClose, onCreated }: CreateTraderShee
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex">
+    <div className="fixed inset-0 z-[200] flex">
       {/* Backdrop */}
       <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
@@ -142,12 +142,12 @@ export function CreateTraderSheet({ open, onClose, onCreated }: CreateTraderShee
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-bd">
+        <div className="flex gap-1 border-b border-bd px-6">
           {(["identity", "strategy", "beliefs"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-5 py-3 text-[11px] uppercase tracking-widest transition-colors ${
+              className={`px-4 py-3 text-[11px] uppercase tracking-widest transition-colors ${
                 tab === t
                   ? "text-ac border-b-2 border-ac"
                   : "text-tm hover:text-td"
@@ -165,7 +165,7 @@ export function CreateTraderSheet({ open, onClose, onCreated }: CreateTraderShee
 
           {/* Identity Tab */}
           {tab === "identity" && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               {/* Archetype picker */}
               <div>
                 <label className="block text-[10px] uppercase tracking-widest text-tm mb-2">Archetype</label>
@@ -204,7 +204,7 @@ export function CreateTraderSheet({ open, onClose, onCreated }: CreateTraderShee
                     if (n) setName(n);
                   }}
                   placeholder="Generate with AI or write your own identity.md..."
-                  className="w-full h-[340px] bg-s2 border border-bd rounded px-3 py-2 text-td text-[12px] font-mono resize-none focus:outline-none focus:border-ac/50"
+                  className="w-full h-[240px] bg-s2 border border-bd rounded px-3 py-2 text-td text-[12px] font-mono resize-none focus:outline-none focus:border-ac/50"
                 />
               </div>
 
@@ -241,26 +241,12 @@ export function CreateTraderSheet({ open, onClose, onCreated }: CreateTraderShee
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-[10px] uppercase tracking-widest text-tm">strategy.md</label>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-tm">Strategy type:</span>
-                    <select
-                      value={strategyName}
-                      onChange={(e) => setStrategyName(e.target.value)}
-                      className="bg-s2 border border-bd rounded px-2 py-1 text-[11px] text-td focus:outline-none focus:border-ac/50"
-                    >
-                      <option value="graham_value">Graham Value</option>
-                      <option value="momentum">Momentum</option>
-                      <option value="blended">Blended</option>
-                    </select>
-                  </div>
-                </div>
+                <label className="block text-[10px] uppercase tracking-widest text-tm mb-2">strategy.md</label>
                 <textarea
                   value={strategy}
                   onChange={(e) => setStrategy(e.target.value)}
                   placeholder="Generate from identity or write your own strategy.md..."
-                  className="w-full h-[400px] bg-s2 border border-bd rounded px-3 py-2 text-td text-[12px] font-mono resize-none focus:outline-none focus:border-ac/50"
+                  className="w-full h-[280px] bg-s2 border border-bd rounded px-3 py-2 text-td text-[12px] font-mono resize-none focus:outline-none focus:border-ac/50"
                 />
               </div>
             </div>

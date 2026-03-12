@@ -11,7 +11,7 @@ const CreateAgentSchema = z.object({
   strategy: z.string().min(50),
   beliefs: z.record(z.string(), z.any()).optional().default({}),
   name: z.string().min(1),
-  strategyName: z.string().min(1),
+  strategyName: z.string().min(1).optional().default("blended"),
 });
 
 export async function POST(req: NextRequest) {
