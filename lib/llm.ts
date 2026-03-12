@@ -1,10 +1,17 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { AnthropicFoundry } from "@anthropic-ai/foundry-sdk";
 import { z } from "zod";
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-  dangerouslyAllowBrowser: true, // safe: only called from Next.js server components + daemon
-});
+let _client: AnthropicFoundry | null = null;
+
+function getClient(): AnthropicFoundry {
+  if (!_client) {
+    _client = new AnthropicFoundry({
+      apiKey: process.env.ANTHROPIC_FOUNDRY_API_KEY,
+      baseURL: process.env.ANTHROPIC_FOUNDRY_BASE_URL!,
+    });
+  }
+  return _client;
+}
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 
@@ -15,7 +22,7 @@ export async function generate(
   temperature = 0.7,
   model = DEFAULT_MODEL
 ): Promise<string> {
-  const msg = await client.messages.create({
+  const msg = await getClient().messages.create({
     model,
     max_tokens: 1024,
     temperature,
@@ -40,7 +47,7 @@ export async function generateStructured<T>(
   const jsonInstruction =
     "\n\nRespond with ONLY valid JSON that matches the requested schema. No markdown, no explanation.";
 
-  const msg = await client.messages.create({
+  const msg = await getClient().messages.create({
     model,
     max_tokens: 2048,
     temperature,

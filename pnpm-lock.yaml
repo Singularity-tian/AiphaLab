@@ -8,9 +8,9 @@ importers:
 
   .:
     dependencies:
-      '@anthropic-ai/sdk':
-        specifier: ^0.78.0
-        version: 0.78.0(zod@4.3.6)
+      '@anthropic-ai/foundry-sdk':
+        specifier: ^0.2.3
+        version: 0.2.3(zod@4.3.6)
       '@neondatabase/serverless':
         specifier: ^0.10.4
         version: 0.10.4
@@ -78,6 +78,9 @@ packages:
   '@alloc/quick-lru@5.2.0':
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
     engines: {node: '>=10'}
+
+  '@anthropic-ai/foundry-sdk@0.2.3':
+    resolution: {integrity: sha512-pD5yYnAeem5s8wDLbdf8/N8CejF/edRd9TJV+0PrT9tLKv6ggQimnr7d05pQn6FrIYACPmty9hekCo2JgepP0w==}
 
   '@anthropic-ai/sdk@0.78.0':
     resolution: {integrity: sha512-PzQhR715td/m1UaaN5hHXjYB8Gl2lF9UVhrrGrZeysiF6Rb74Wc9GCB8hzLdzmQtBd1qe89F9OptgB9Za1Ib5w==}
@@ -1044,6 +1047,12 @@ packages:
 snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
+
+  '@anthropic-ai/foundry-sdk@0.2.3(zod@4.3.6)':
+    dependencies:
+      '@anthropic-ai/sdk': 0.78.0(zod@4.3.6)
+    transitivePeerDependencies:
+      - zod
 
   '@anthropic-ai/sdk@0.78.0(zod@4.3.6)':
     dependencies:

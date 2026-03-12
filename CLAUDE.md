@@ -38,7 +38,8 @@ Copy `.env.local.example` → `.env.local`:
 |----------|----------|---------|
 | `DATABASE_URL` | yes | Neon Postgres connection string |
 | `FMP_API_KEY` | yes | Financial Modeling Prep (market data) |
-| `ANTHROPIC_API_KEY` | yes | Claude API (LLM generation) |
+| `ANTHROPIC_FOUNDRY_API_KEY` | yes | Azure Foundry API key (Claude LLM generation) |
+| `ANTHROPIC_FOUNDRY_BASE_URL` | yes | Azure Foundry base URL (e.g. `https://your-resource.services.ai.azure.com/anthropic`) |
 | `OPENAI_API_KEY` | no | Embeddings (text-embedding-3-small); falls back to zero vectors |
 | `FILESTORE_BACKEND=pg` | prod only | Use `agent_docs` table instead of local files |
 
@@ -64,7 +65,7 @@ The two processes communicate **only through Neon Postgres** — no IPC, no shar
 | `lib/fileStore.ts` | `IFileStore` interface; `FileStore` (local fs) and `PgFileStore` (Neon `agent_docs`); `getFileStore()` factory switches on `FILESTORE_BACKEND` |
 | `lib/agent.ts` | `TraderAgent` — three phases: `runDecisionPhase()`, `runReviewPhase()`, `respondToAlert()` |
 | `lib/broker.ts` | `SimulatedBroker` — paper trading, trailing stop-loss, position tracking |
-| `lib/llm.ts` | `generate()`, `generateStructured<T>()`, `generateStructuredWithRetry<T>()` — all use `claude-sonnet-4-6` |
+| `lib/llm.ts` | `generate()`, `generateStructured<T>()`, `generateStructuredWithRetry<T>()` — Claude via Azure Foundry, default `claude-sonnet-4-6` |
 | `lib/fmp.ts` | `FMPClient` — FMP API wrapper with TTL cache |
 | `lib/signals.ts` | Graham value + momentum signal scoring (returns 0–1) |
 | `lib/embeddings.ts` | `EmbeddingClient` — pgvector embeddings via OpenAI, zero-vector fallback |
@@ -110,7 +111,7 @@ The evolution engine (Sunday) reads recent journals + performance metrics and re
 
 | Service | Command | Env vars needed |
 |---------|---------|----------------|
-| Vercel (Next.js) | `pnpm build` auto | `DATABASE_URL`, `FILESTORE_BACKEND=pg`, `ANTHROPIC_API_KEY` |
+| Vercel (Next.js) | `pnpm build` auto | `DATABASE_URL`, `FILESTORE_BACKEND=pg`, `ANTHROPIC_FOUNDRY_API_KEY`, `ANTHROPIC_FOUNDRY_BASE_URL` |
 | Railway (daemon) | `pnpm daemon` | all of the above + `FMP_API_KEY` |
 
 Run migration once before first deploy: `DATABASE_URL=<neon_url> pnpm migrate`
