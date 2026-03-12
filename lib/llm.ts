@@ -3,6 +3,7 @@ import { z } from "zod";
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
+  dangerouslyAllowBrowser: true, // safe: only called from Next.js server components + daemon
 });
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";

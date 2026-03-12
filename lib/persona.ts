@@ -7,7 +7,6 @@ export const TraderPersonaSchema = z.object({
   background: z.string(),
   personalityTraits: z.array(z.string()).min(2).max(5),
   riskTolerance: z.enum(["low", "medium", "high", "reckless"]),
-  preferredStrategy: z.string(),
   tradingStyle: z.string(),
   quirks: z.array(z.string()).min(1).max(4),
   decisionTemperature: z.number().min(0.1).max(0.95),
@@ -82,7 +81,7 @@ ${persona.quirks.map((q) => `- ${q}`).join("\n")}
 export function formatStrategyMd(persona: TraderPersona): string {
   const watchlistStr = persona.watchlist.join(", ");
 
-  const entryRules = _generateEntryRules(persona);
+  const entryRules = _generateEntryRules();
   const exitRules = _generateExitRules(persona);
   const sizing = _generateSizingRules(persona);
 
@@ -113,21 +112,7 @@ ${sizing}
 `;
 }
 
-function _generateEntryRules(persona: TraderPersona): string[] {
-  const strategy = persona.preferredStrategy.toLowerCase();
-  if (strategy.includes("momentum")) {
-    return [
-      "Combined signal score > 0.65 (strong momentum confirmation)",
-      "12-1 momentum score in top 30% of watchlist universe",
-      "SPY regime is trending_up or price > 200-day MA",
-    ];
-  } else if (strategy.includes("graham") || strategy.includes("value")) {
-    return [
-      "Combined signal score > 0.60 (Graham value composite)",
-      "P/E ratio below sector median by at least 20%",
-      "Current ratio > 1.5 and positive EPS trend",
-    ];
-  }
+function _generateEntryRules(): string[] {
   return [
     "Combined signal score > 0.62 (blended value + momentum)",
     "Graham score > 0.55 AND momentum score > 0.50",
@@ -156,14 +141,12 @@ function _generateSizingRules(persona: TraderPersona): string[] {
 
 export async function generatePersonaBatch(
   archetypeCluster: string,
-  strategies: string[],
   agentIndexStart: number,
   batchSize = 10
 ): Promise<TraderPersona[]> {
   const prompt = `Generate ${batchSize} realistic trader personas for a stock market simulation.
 
 Archetype cluster: "${archetypeCluster}"
-Preferred strategies (use one of): ${strategies.join(", ")}
 
 Rules:
 - Distinct names, believable backgrounds
@@ -177,7 +160,7 @@ Return JSON array of ${batchSize} traders:
 {
   "name": string, "age": number, "background": string,
   "personalityTraits": string[], "riskTolerance": "low"|"medium"|"high"|"reckless",
-  "preferredStrategy": string, "tradingStyle": string,
+  "tradingStyle": string,
   "quirks": string[], "decisionTemperature": number, "convictionMultiplier": number,
   "description": string, "watchlist": string[]
 }`;
@@ -194,7 +177,6 @@ Return JSON array of ${batchSize} traders:
       background: p.background ?? "Independent trader.",
       personalityTraits: p.personalityTraits ?? ["analytical"],
       riskTolerance: p.riskTolerance ?? "medium",
-      preferredStrategy: p.preferredStrategy ?? strategies[0],
       tradingStyle: p.tradingStyle ?? "swing",
       quirks: p.quirks ?? ["follows signals strictly"],
       decisionTemperature: p.decisionTemperature ?? 0.5,
@@ -205,7 +187,7 @@ Return JSON array of ${batchSize} traders:
   }
 }
 
-export async function generateAllPersonas(n: number, strategies: string[]): Promise<TraderPersona[]> {
+export async function generateAllPersonas(n: number): Promise<TraderPersona[]> {
   const personas: TraderPersona[] = [];
   const batchSize = 10;
   const batches = Math.ceil(n / batchSize);
@@ -215,7 +197,7 @@ export async function generateAllPersonas(n: number, strategies: string[]): Prom
     const size = Math.min(batchSize, n - personas.length);
     console.log(`  Batch ${i + 1}/${batches} (${cluster})...`);
     try {
-      const batch = await generatePersonaBatch(cluster, strategies, personas.length, size);
+      const batch = await generatePersonaBatch(cluster, personas.length, size);
       const processed = batch.map((p, j) => ({
         ...p,
         watchlist: generateWatchlist(personas.length + j),
@@ -231,7 +213,6 @@ export async function generateAllPersonas(n: number, strategies: string[]): Prom
           background: "Independent retail trader.",
           personalityTraits: ["disciplined", "analytical"],
           riskTolerance: "medium",
-          preferredStrategy: strategies[idx % strategies.length],
           tradingStyle: "signal-follower",
           quirks: ["follows signals strictly"],
           decisionTemperature: 0.3,

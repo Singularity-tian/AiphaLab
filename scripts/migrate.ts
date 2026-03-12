@@ -4,7 +4,9 @@
  * Usage: tsx scripts/migrate.ts
  */
 
-import "dotenv/config";
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
+dotenv.config(); // fallback to .env
 import { neon } from "@neondatabase/serverless";
 import { DDL } from "../lib/db/schema";
 
@@ -25,9 +27,9 @@ async function main() {
 
   for (const stmt of statements) {
     try {
-      // Use tagged template literal trick: sql`...` requires template literals,
-      // but we can use sql([stmt], []) to pass a raw query string
-      await (sql as any)([stmt] as any, [] as any);
+      // Neon tagged template: pass statement as sole element of TemplateStringsArray (no bind params)
+      const t = Object.assign([stmt], { raw: [stmt] }) as unknown as TemplateStringsArray;
+      await sql(t);
       ok++;
     } catch (e: any) {
       // "already exists" errors are expected on re-runs
@@ -40,6 +42,16 @@ async function main() {
         skip++;
       }
     }
+  }
+
+  // Drop deprecated strategy_name column if it exists
+  try {
+    const dropStmt = "ALTER TABLE agents DROP COLUMN IF EXISTS strategy_name";
+    const t = Object.assign([dropStmt], { raw: [dropStmt] }) as unknown as TemplateStringsArray;
+    await sql(t);
+    console.log("Dropped deprecated strategy_name column.");
+  } catch (e: any) {
+    console.log(`strategy_name column drop skipped: ${e.message}`);
   }
 
   console.log(`Migration complete: ${ok} statements executed, ${skip} skipped (already exist).`);

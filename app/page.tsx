@@ -154,7 +154,6 @@ export default function DashboardPage() {
                     key={a.id}
                     id={a.id}
                     name={a.name}
-                    strategy={a.strategy}
                     riskTolerance="medium"
                     cumulativeReturn={a.cumulativeReturn}
                     dailyReturn={a.dailyReturn}

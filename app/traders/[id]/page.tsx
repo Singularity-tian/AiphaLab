@@ -9,7 +9,7 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
-function parseIdentityMd(content: string, fallbackName: string, fallbackStrategy: string) {
+function parseIdentityMd(content: string, fallbackName: string) {
   const nameLineMatch = content.match(/^#\s+(.+?)\s+—\s+(.+)$/m);
   const bgMatch = content.match(/## Background\n([\s\S]+?)(?=\n##)/);
   const traitsMatch = content.match(/## Personality\n([\s\S]+?)(?=\n##)/);
@@ -28,7 +28,6 @@ function parseIdentityMd(content: string, fallbackName: string, fallbackStrategy
     riskTolerance: riskMatch ? riskMatch[1] : "medium",
     tradingStyle: nameLineMatch ? nameLineMatch[2].trim() : "signal-based",
     quirks: quirksMatch ? listItems(quirksMatch[1]) : [],
-    preferredStrategy: fallbackStrategy,
     description: philoMatch ? philoMatch[1].trim() : "",
   };
 }
@@ -49,7 +48,7 @@ async function getTraderData(id: number) {
     db.getPositions(id),
   ]);
 
-  let persona = parseIdentityMd("", agent.name, agent.strategy_name);
+  let persona = parseIdentityMd("", agent.name);
   let review: { date: string; review_text: string; mood: string | null } | null = null;
   let beliefs: Record<string, import("@/lib/fileStore").TickerBelief> = {};
   let strategyMd = "";
@@ -60,7 +59,7 @@ async function getTraderData(id: number) {
       fileStore.loadBeliefs(id),
       fileStore.loadStrategy(id),
     ]);
-    persona = parseIdentityMd(identityContent, agent.name, agent.strategy_name);
+    persona = parseIdentityMd(identityContent, agent.name);
     beliefs = loadedBeliefs;
     strategyMd = loadedStrategy;
 

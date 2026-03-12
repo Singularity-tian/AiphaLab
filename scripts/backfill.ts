@@ -4,7 +4,9 @@
  * Usage: tsx scripts/backfill.ts --from 2025-01-02 --to 2025-01-31 [--agents 5]
  */
 
-import "dotenv/config";
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 import { SimDB } from "../lib/db/repository";
 import { type IFileStore, getFileStore } from "../lib/fileStore";
 import { getFmp } from "../lib/fmp";
@@ -98,7 +100,6 @@ async function main() {
       const config: AgentConfig = {
         id: agentRow.id,
         name: agentRow.name,
-        strategyName: agentRow.strategy_name,
         initialCash: Number(agentRow.initial_cash),
         decisionTemperature: 0.5,
         convictionMultiplier: 1.0,

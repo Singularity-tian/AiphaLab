@@ -12,7 +12,6 @@ export async function GET() {
       rank: i + 1,
       id: r.id,
       name: r.name,
-      strategy: r.strategy_name,
       portfolioValue: r.portfolio_value,
       cumulativeReturn: r.cumulative_return ?? 0,
       dailyReturn: r.daily_return ?? 0,

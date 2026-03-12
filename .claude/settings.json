@@ -4,7 +4,18 @@
       "Bash(pnpm install:*)",
       "Bash(pnpm typecheck:*)",
       "Bash(grep -n FileStore /Users/tianyizhang/Desktop/Coding/aiphalab/daemon/phases/*.ts /Users/tianyizhang/Desktop/Coding/aiphalab/daemon/priceMonitor.ts /Users/tianyizhang/Desktop/Coding/aiphalab/daemon/evolutionEngine.ts /Users/tianyizhang/Desktop/Coding/aiphalab/scripts/run.ts /Users/tianyizhang/Desktop/Coding/aiphalab/scripts/backfill.ts)",
-      "Bash(echo \"Exit: $?\")"
+      "Bash(echo \"Exit: $?\")",
+      "Bash(wc -l /Users/tianyizhang/Desktop/Coding/aiphalab/daemon/phases/*.ts)",
+      "Bash(wc -l /Users/tianyizhang/Desktop/Coding/aiphalab/app/api/*/*.ts /Users/tianyizhang/Desktop/Coding/aiphalab/app/api/*/*/*.ts)",
+      "Bash(wc -l /Users/tianyizhang/Desktop/Coding/aiphalab/components/*.tsx)",
+      "Bash(wc -l /Users/tianyizhang/Desktop/Coding/aiphalab/lib/db/*.ts /Users/tianyizhang/Desktop/Coding/aiphalab/hooks/*.ts /Users/tianyizhang/Desktop/Coding/aiphalab/scripts/*.ts)",
+      "Bash(grep -E \"\\\\.tsx$\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm migrate:*)",
+      "Bash(pnpm seed:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

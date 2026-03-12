@@ -6,7 +6,6 @@ interface LeaderboardEntry {
   rank: number;
   id: number;
   name: string;
-  strategy: string;
   portfolioValue: number;
   cumulativeReturn: number;
   dailyReturn: number;

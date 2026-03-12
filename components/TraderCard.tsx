@@ -5,7 +5,6 @@ import Link from "next/link";
 interface Props {
   id: number;
   name: string;
-  strategy: string;
   riskTolerance: string;
   cumulativeReturn: number;
   dailyReturn: number;
@@ -36,7 +35,6 @@ function nameToColor(name: string): string {
 export default function TraderCard({
   id,
   name,
-  strategy,
   riskTolerance,
   cumulativeReturn,
   dailyReturn,
@@ -128,7 +126,7 @@ export default function TraderCard({
               {name}
             </div>
             <div style={{ fontSize: 10, color: "#71717a" }}>
-              {strategy.replace(/_/g, " ")} · {MOOD_EMOJI[mood] ?? "⚪"} {mood}
+              {MOOD_EMOJI[mood] ?? "⚪"} {mood}
             </div>
           </div>
         </div>

@@ -61,7 +61,6 @@ export interface DayResult {
 export interface AgentConfig {
   id: number;
   name: string;
-  strategyName: string;
   initialCash: number;
   decisionTemperature: number;
   convictionMultiplier: number;
@@ -324,7 +323,6 @@ Respond with JSON: { "action": "SELL" | "HOLD" | "SCALE", "rationale": "..." }`;
       watchlist,
       marketContext.date,
       this.fmp,
-      this.config.strategyName.includes("momentum") ? "momentum" : "graham_value"
     );
 
     const { tradesExecuted } = await this.runDecisionPhase(marketContext, signals);

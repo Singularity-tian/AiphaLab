@@ -36,7 +36,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({
       id: agent.id,
       name: agent.name,
-      strategy: agent.strategy_name,
       initialCash: agent.initial_cash,
       state: state ?? { cash: agent.initial_cash, portfolio_value: agent.initial_cash, total_pnl: 0, run_count: 0 },
       latestSnapshot: snap,

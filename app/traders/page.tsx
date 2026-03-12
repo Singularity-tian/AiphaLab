@@ -33,7 +33,6 @@ async function getAgents() {
         return {
           id: a.id,
           name: a.name,
-          strategy: a.strategy_name,
           riskTolerance,
           cumulativeReturn: snap?.cumulative_return ?? 0,
           dailyReturn: snap?.daily_return ?? 0,

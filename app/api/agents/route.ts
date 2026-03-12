@@ -17,7 +17,6 @@ export async function GET() {
         return {
           id: a.id,
           name: a.name,
-          strategy: a.strategy_name,
           cash: state?.cash ?? a.initial_cash,
           portfolioValue: snap?.portfolio_value ?? a.initial_cash,
           cumulativeReturn: snap?.cumulative_return ?? 0,

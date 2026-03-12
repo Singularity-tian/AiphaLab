@@ -4,7 +4,9 @@
  * Usage: tsx scripts/run.ts [--date YYYY-MM-DD] [--dry-run]
  */
 
-import "dotenv/config";
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 import { SimDB } from "../lib/db/repository";
 import { getFmp } from "../lib/fmp";
 import { getFileStore } from "../lib/fileStore";
@@ -85,7 +87,6 @@ async function main() {
         const config: AgentConfig = {
           id: agentRow.id,
           name: agentRow.name,
-          strategyName: agentRow.strategy_name,
           initialCash: Number(agentRow.initial_cash),
           decisionTemperature: 0.5,
           convictionMultiplier: 1.0,

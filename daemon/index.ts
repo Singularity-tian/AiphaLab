@@ -8,7 +8,9 @@
  *   pnpm daemon -- --phase preMarket --date 2025-01-06  — manual single phase
  */
 
-import "dotenv/config";
+import dotenv from "dotenv";
+dotenv.config({ path: ".env.local" });
+dotenv.config();
 import { DateTime } from "luxon";
 import { SimDB } from "../lib/db/repository";
 import { getFmp } from "../lib/fmp";

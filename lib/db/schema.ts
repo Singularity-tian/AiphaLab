@@ -4,7 +4,6 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE IF NOT EXISTS agents (
   id              SERIAL PRIMARY KEY,
   name            TEXT NOT NULL,
-  strategy_name   TEXT NOT NULL,
   initial_cash    NUMERIC NOT NULL DEFAULT 100000,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   is_active       BOOLEAN NOT NULL DEFAULT true
@@ -125,13 +124,14 @@ CREATE TABLE IF NOT EXISTS simulation_log (
 );
 
 CREATE TABLE IF NOT EXISTS agent_docs (
+  id              SERIAL PRIMARY KEY,
   agent_id        INT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
   doc_type        TEXT NOT NULL,
   doc_date        DATE,
   content         TEXT NOT NULL,
-  updated_at      TIMESTAMPTZ DEFAULT now(),
-  PRIMARY KEY (agent_id, doc_type, COALESCE(doc_date, '0001-01-01'))
+  updated_at      TIMESTAMPTZ DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_docs_unique ON agent_docs(agent_id, doc_type, COALESCE(doc_date, '0001-01-01'));
 CREATE INDEX IF NOT EXISTS idx_agent_docs_agent ON agent_docs(agent_id, doc_type);
 `;
 
@@ -144,7 +144,8 @@ export async function runMigration(sql: (template: TemplateStringsArray, ...valu
 
   for (const stmt of statements) {
     try {
-      await (sql as any)([stmt] as any, [] as any);
+      const t = Object.assign([stmt], { raw: [stmt] }) as unknown as TemplateStringsArray;
+      await sql(t);
     } catch {
       // Ignore "already exists" errors on re-runs (IF NOT EXISTS handles most)
     }

@@ -47,7 +47,7 @@ export async function runPreMarket(
   const tickers = Array.from(allTickers).slice(0, 200); // cap at 200
   console.log(`[preMarket] Computing signals for ${tickers.length} unique tickers...`);
 
-  const signals = await computeBatchSignals(tickers, date, fmp, "blended");
+  const signals = await computeBatchSignals(tickers, date, fmp);
 
   _cache = { date, signals, cachedAt: Date.now() };
   console.log(`[preMarket] Done — ${Object.keys(signals).length} signals computed.`);

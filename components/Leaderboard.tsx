@@ -6,7 +6,6 @@ interface LeaderboardEntry {
   rank: number;
   id: number;
   name: string;
-  strategy: string;
   portfolioValue: number;
   cumulativeReturn: number;
   dailyReturn: number;
@@ -50,7 +49,7 @@ export default function Leaderboard({ data }: Props) {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              {["#", "Trader", "Strategy", "Return", "Today", "Trades"].map((h) => (
+              {["#", "Trader", "Return", "Today", "Trades"].map((h) => (
                 <th
                   key={h}
                   style={{
@@ -107,16 +106,6 @@ export default function Leaderboard({ data }: Props) {
                     }}
                   >
                     {row.name}
-                  </td>
-                  <td
-                    style={{
-                      padding: "8px 16px",
-                      borderBottom: "1px solid #1c1c1f",
-                      fontSize: 11,
-                      color: "#71717a",
-                    }}
-                  >
-                    {row.strategy.replace("_", " ")}
                   </td>
                   <td
                     style={{

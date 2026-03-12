@@ -3,7 +3,6 @@ import { getDb } from "./client";
 export interface AgentRow {
   id: number;
   name: string;
-  strategy_name: string;
   initial_cash: number;
   created_at: string;
   is_active: boolean;
@@ -113,8 +112,8 @@ export class SimDB {
   // ---- agents ----
   async insertAgent(a: Omit<AgentRow, "id" | "created_at">): Promise<number> {
     const rows = await this.sql`
-      INSERT INTO agents (name, strategy_name, initial_cash, is_active)
-      VALUES (${a.name}, ${a.strategy_name}, ${a.initial_cash}, ${a.is_active})
+      INSERT INTO agents (name, initial_cash, is_active)
+      VALUES (${a.name}, ${a.initial_cash}, ${a.is_active})
       RETURNING id
     `;
     return (rows[0] as { id: number }).id;
@@ -238,7 +237,6 @@ export class SimDB {
   async getLeaderboard(limit = 100): Promise<Array<{
     id: number;
     name: string;
-    strategy_name: string;
     portfolio_value: number;
     cumulative_return: number | null;
     daily_return: number | null;
@@ -246,7 +244,7 @@ export class SimDB {
     trade_count: number;
   }>> {
     const rows = await this.sql`
-      SELECT a.id, a.name, a.strategy_name,
+      SELECT a.id, a.name,
              s.portfolio_value, s.cumulative_return, s.daily_return, s.date AS snap_date,
              (SELECT COUNT(*) FROM trades WHERE agent_id = a.id)::int AS trade_count
       FROM agents a

@@ -6,7 +6,6 @@ interface Persona {
   riskTolerance: string;
   tradingStyle: string;
   quirks: string[];
-  preferredStrategy: string;
   description: string;
 }
 

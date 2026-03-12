@@ -90,7 +90,6 @@ export async function computeSignals(
   ticker: string,
   asOfDate: string,
   fmp: FMPClient,
-  strategy: "graham_value" | "momentum" | "blended" = "graham_value"
 ): Promise<SignalResult> {
   try {
     const [ratios, ohlcv] = await Promise.all([
@@ -100,17 +99,12 @@ export async function computeSignals(
 
     const factors: Record<string, number> = {};
 
-    if (strategy === "graham_value" || strategy === "blended") {
-      factors.pe = peScore(ratios);
-      factors.pb = pbScore(ratios);
-      factors.current_ratio = currentRatioScore(ratios);
-      factors.dividend_yield = dividendYieldScore(ratios);
-      factors.eps_trend = epsTrendScore(ratios);
-    }
-
-    if (strategy === "momentum" || strategy === "blended") {
-      factors.momentum = momentumScore(ohlcv, asOfDate);
-    }
+    factors.pe = peScore(ratios);
+    factors.pb = pbScore(ratios);
+    factors.current_ratio = currentRatioScore(ratios);
+    factors.dividend_yield = dividendYieldScore(ratios);
+    factors.eps_trend = epsTrendScore(ratios);
+    factors.momentum = momentumScore(ohlcv, asOfDate);
 
     const values = Object.values(factors);
     const combined = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0.5;
@@ -127,10 +121,9 @@ export async function computeBatchSignals(
   tickers: string[],
   asOfDate: string,
   fmp: FMPClient,
-  strategy: "graham_value" | "momentum" | "blended" = "graham_value"
 ): Promise<Record<string, SignalResult>> {
   const results = await Promise.allSettled(
-    tickers.map((t) => computeSignals(t, asOfDate, fmp, strategy))
+    tickers.map((t) => computeSignals(t, asOfDate, fmp))
   );
   return Object.fromEntries(
     tickers.map((t, i) => {

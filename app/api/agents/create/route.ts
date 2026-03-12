@@ -11,7 +11,6 @@ const CreateAgentSchema = z.object({
   strategy: z.string().min(50),
   beliefs: z.record(z.string(), z.any()).optional().default({}),
   name: z.string().min(1),
-  strategyName: z.string().min(1).optional().default("blended"),
 });
 
 export async function POST(req: NextRequest) {
@@ -23,12 +22,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: parsed.error.issues }, { status: 400 });
     }
 
-    const { identity, strategy, beliefs, name, strategyName } = parsed.data;
+    const { identity, strategy, beliefs, name } = parsed.data;
 
     // Insert DB row
     const agentId = await db.insertAgent({
       name,
-      strategy_name: strategyName,
       initial_cash: 100_000,
       is_active: true,
     });

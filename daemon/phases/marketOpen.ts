@@ -61,7 +61,6 @@ export async function runMarketOpen(
     const config: AgentConfig = {
       id: agentRow.id,
       name: agentRow.name,
-      strategyName: agentRow.strategy_name,
       initialCash: Number(agentRow.initial_cash),
       decisionTemperature: 0.5,
       convictionMultiplier: 1.0,

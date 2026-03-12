@@ -5,7 +5,6 @@ import { useState, useEffect } from "react";
 interface TraderDetail {
   id: number;
   name: string;
-  strategy: string;
   initialCash: number;
   state: {
     cash: number;
