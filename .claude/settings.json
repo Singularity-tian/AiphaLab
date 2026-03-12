@@ -15,7 +15,9 @@
       "Bash(pnpm add:*)",
       "Bash(pnpm migrate:*)",
       "Bash(pnpm seed:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(grep -r \"backdrop\\\\|overlay\\\\|modal\\\\|dialog\\\\|sheet\\\\|drawer\" /Users/tianyizhang/Desktop/Coding/aiphalab/components/*.tsx --include=*.tsx -l)",
+      "Bash(find /Users/tianyizhang/Desktop/Coding/aiphalab -maxdepth 2 -name tailwind* -o -name postcss* -o -name next.config*)"
     ]
   }
 }
