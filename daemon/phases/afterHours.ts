@@ -9,7 +9,7 @@ import { SimDB } from "../../lib/db/repository";
 import { FMPClient } from "../../lib/fmp";
 import { type IFileStore } from "../../lib/fileStore";
 import { EmbeddingClient } from "../../lib/embeddings";
-import { TraderAgent, MarketContext, AgentConfig } from "../../lib/agent";
+import { TraderAgent, MarketContext, AgentConfig, parseAgentParams } from "../../lib/agent";
 import { TokenBucket } from "../rateLimiter";
 
 export async function runAfterHours(
@@ -36,12 +36,13 @@ export async function runAfterHours(
   for (const batch of chunk(remaining, 5)) {
     await Promise.all(
       batch.map(async (agentRow) => {
+        const identity = await fileStore.loadIdentity(agentRow.id);
+        const params = parseAgentParams(identity);
         const config: AgentConfig = {
           id: agentRow.id,
           name: agentRow.name,
           initialCash: Number(agentRow.initial_cash),
-          decisionTemperature: 0.5,
-          convictionMultiplier: 1.0,
+          ...params,
         };
 
         const trader = new TraderAgent(agentRow.id, config, db, fmp, fileStore, embeddings, llmBucket);

@@ -165,6 +165,67 @@ export class SimulatedBroker {
     return { success: true, ticker, side: "BUY", shares, price, commission, cashAfter: this.cash, reason };
   }
 
+  /** Add to an existing position (for SCALE action). Adjusts average cost basis. */
+  async addToPosition(
+    ticker: string,
+    dollarAmount: number,
+    date: string,
+    fmp: FMPClient,
+    reason = "SCALE_IN",
+    llmRationale: string | null = null,
+    phase = "priceMonitor"
+  ): Promise<OrderResult> {
+    const pos = this.positions.get(ticker);
+    if (!pos) {
+      return { success: false, ticker, side: "BUY", shares: 0, price: 0, commission: 0, cashAfter: this.cash, reason, error: "no_position" };
+    }
+
+    const rawPrice = await this.getPrice(ticker, fmp);
+    if (!rawPrice) {
+      return { success: false, ticker, side: "BUY", shares: 0, price: 0, commission: 0, cashAfter: this.cash, reason, error: "no_price" };
+    }
+
+    const price = rawPrice * (1 + this.slippageBps / 10_000);
+    const maxSpend = Math.min(dollarAmount, this.cash * 0.95);
+    if (maxSpend < price) {
+      return { success: false, ticker, side: "BUY", shares: 0, price, commission: 0, cashAfter: this.cash, reason, error: "insufficient_cash" };
+    }
+
+    const newShares = Math.floor(maxSpend / price / (1 + this.commissionRate));
+    if (newShares < 1) {
+      return { success: false, ticker, side: "BUY", shares: 0, price, commission: 0, cashAfter: this.cash, reason, error: "too_small" };
+    }
+
+    const commission = newShares * price * this.commissionRate;
+    const totalCost = newShares * price + commission;
+    this.cash -= totalCost;
+
+    // Update position with weighted average cost basis
+    const oldCost = pos.costBasis;
+    pos.shares += newShares;
+    pos.costBasis = oldCost + totalCost;
+    pos.entryPrice = pos.costBasis / pos.shares; // weighted average
+    if (price > pos.trailingHigh) pos.trailingHigh = price;
+
+    this.pendingTrades.push({
+      agent_id: this.agentId,
+      date,
+      ticker,
+      side: "BUY",
+      shares: newShares,
+      price,
+      value: newShares * price,
+      commission,
+      cash_after: this.cash,
+      reason,
+      llm_rationale: llmRationale,
+      signal_score: null,
+      phase,
+    });
+
+    return { success: true, ticker, side: "BUY", shares: newShares, price, commission, cashAfter: this.cash, reason };
+  }
+
   async sell(
     ticker: string,
     date: string,

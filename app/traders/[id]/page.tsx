@@ -34,9 +34,9 @@ function parseIdentityMd(content: string, fallbackName: string) {
 
 async function getTraderData(id: number) {
   const { SimDB } = await import("@/lib/db/repository");
-  const { FileStore } = await import("@/lib/fileStore");
+  const { getFileStore } = await import("@/lib/fileStore");
   const db = new SimDB();
-  const fileStore = new FileStore();
+  const fileStore = getFileStore();
 
   const agent = await db.getAgent(id);
   if (!agent) return null;

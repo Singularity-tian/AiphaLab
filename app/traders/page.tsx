@@ -3,9 +3,9 @@ import TraderCard from "@/components/TraderCard";
 async function getAgents() {
   try {
     const { SimDB } = await import("@/lib/db/repository");
-    const { FileStore } = await import("@/lib/fileStore");
+    const { getFileStore } = await import("@/lib/fileStore");
     const db = new SimDB();
-    const fileStore = new FileStore();
+    const fileStore = getFileStore();
     const agents = await db.getAllAgents();
 
     const results = await Promise.all(

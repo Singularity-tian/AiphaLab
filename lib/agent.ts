@@ -57,6 +57,18 @@ export interface DayResult {
   mood: string;
 }
 
+// ---- Identity parameter parsing ----
+
+/** Parse decisionTemperature and convictionMultiplier from identity.md content. */
+export function parseAgentParams(identityMd: string): { decisionTemperature: number; convictionMultiplier: number } {
+  const temp = identityMd.match(/Decision temperature:\s*([\d.]+)/i);
+  const conv = identityMd.match(/Conviction multiplier:\s*([\d.]+)/i);
+  return {
+    decisionTemperature: temp ? parseFloat(temp[1]) : 0.5,
+    convictionMultiplier: conv ? parseFloat(conv[1]) : 1.0,
+  };
+}
+
 // ---- Agent config loaded from DB ----
 export interface AgentConfig {
   id: number;
@@ -314,6 +326,24 @@ Respond with JSON: { "action": "SELL" | "HOLD" | "SCALE", "rationale": "..." }`;
           notes: `Sold on alert: ${alert.alert_type} at ${(alert.pct_change * 100).toFixed(1)}%`,
         });
         return { sold: true, rationale: decision.rationale };
+      }
+    } else if (decision.action === "SCALE") {
+      const scaleCash = broker.cash * 0.1; // add 10% of available cash
+      const result = await broker.addToPosition(
+        alert.ticker,
+        scaleCash,
+        marketContext.date,
+        this.fmp,
+        `ALERT_SCALE_${alert.alert_type.toUpperCase()}`,
+        decision.rationale,
+        "priceMonitor"
+      );
+      if (result.success) {
+        await broker.persistToDB(this.db, marketContext.date);
+        await this.fileStore.updateTickerBelief(this.agentId, alert.ticker, {
+          sentiment: "bullish",
+          notes: `Scaled in on alert: ${alert.alert_type} at ${(alert.pct_change * 100).toFixed(1)}%`,
+        });
       }
     }
 

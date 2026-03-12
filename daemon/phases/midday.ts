@@ -1,7 +1,7 @@
 /**
  * Midday Phase (12:30 ET Mon-Fri)
- * Re-fetch prices, update trailing stops, targeted LLM for -10% positions.
- * LLM calls: 0-10. Writes: positions, beliefs.json.
+ * Re-fetch prices, update trailing stops. Stop-loss only — no LLM calls.
+ * LLM calls: 0. Writes: positions, beliefs.
  */
 
 import { SimDB } from "../../lib/db/repository";

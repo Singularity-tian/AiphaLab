@@ -9,7 +9,7 @@ import { SimDB } from "../../lib/db/repository";
 import { FMPClient } from "../../lib/fmp";
 import { type IFileStore } from "../../lib/fileStore";
 import { EmbeddingClient } from "../../lib/embeddings";
-import { TraderAgent, MarketContext, AgentConfig } from "../../lib/agent";
+import { TraderAgent, MarketContext, AgentConfig, parseAgentParams } from "../../lib/agent";
 import { TokenBucket } from "../rateLimiter";
 import { getSignalCache } from "./preMarket";
 
@@ -58,12 +58,13 @@ export async function runMarketOpen(
 
   await processAgentsInPhase("marketOpen", date, agents, db, async (agentId) => {
     const agentRow = agents.find((a) => a.id === agentId)!;
+    const identity = await fileStore.loadIdentity(agentRow.id);
+    const params = parseAgentParams(identity);
     const config: AgentConfig = {
       id: agentRow.id,
       name: agentRow.name,
       initialCash: Number(agentRow.initial_cash),
-      decisionTemperature: 0.5,
-      convictionMultiplier: 1.0,
+      ...params,
     };
 
     const trader = new TraderAgent(agentId, config, db, fmp, fileStore, embeddings, llmBucket);

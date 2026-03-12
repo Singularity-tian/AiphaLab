@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { SimDB } from "@/lib/db/repository";
-import { PgFileStore, type TickerBelief } from "@/lib/fileStore";
+import { getFileStore, type TickerBelief } from "@/lib/fileStore";
 
 const db = new SimDB();
-const fileStore = new PgFileStore();
+const fileStore = getFileStore();
 
 const CreateAgentSchema = z.object({
   identity: z.string().min(50),

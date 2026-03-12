@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { FileStore } from "@/lib/fileStore";
+import { getFileStore } from "@/lib/fileStore";
 
-const fileStore = new FileStore();
+const fileStore = getFileStore();
 
 export async function GET(
   _req: NextRequest,

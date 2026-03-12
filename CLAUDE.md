@@ -8,7 +8,7 @@ AiphaLab is an open-source stock market simulation platform where 100 LLM-powere
 
 Each agent has a "soul" stored as files: `identity.md` (personality, quirks, risk tolerance), `strategy.md` (watchlist, entry/exit rules, changelog), `beliefs.json` (per-ticker thesis/sentiment), and a daily `journal/`. A long-running daemon runs six trading phases each market day. A weekly evolution engine has Claude rewrite underperforming agents' strategies based on their own journals and trade history. Agents also embed their journals into pgvector and retrieve relevant episodic memories when making decisions.
 
-The Next.js dashboard is a **read-only** leaderboard/viewer. All writes happen in the daemon.
+The Next.js dashboard is primarily a read-only leaderboard/viewer. The one exception is `app/api/agents/create/` which serves as a lightweight agent authoring console (inserts agent rows and soul files). All other mutations go through the daemon.
 
 ## Commands
 
@@ -63,8 +63,8 @@ The two processes communicate **only through Neon Postgres** — no IPC, no shar
 | `lib/db/repository.ts` | `SimDB` — all DB access. Methods are async; result type is cast to `any[]` via the `getDb()` cast so `rows[0]` works without TS errors |
 | `lib/db/schema.ts` | Postgres DDL + `runMigration(sql)` |
 | `lib/fileStore.ts` | `IFileStore` interface; `FileStore` (local fs) and `PgFileStore` (Neon `agent_docs`); `getFileStore()` factory switches on `FILESTORE_BACKEND` |
-| `lib/agent.ts` | `TraderAgent` — three phases: `runDecisionPhase()`, `runReviewPhase()`, `respondToAlert()` |
-| `lib/broker.ts` | `SimulatedBroker` — paper trading, trailing stop-loss, position tracking |
+| `lib/agent.ts` | `TraderAgent` — three phases: `runDecisionPhase()`, `runReviewPhase()`, `respondToAlert()`. Also exports `parseAgentParams()` for reading identity.md parameters |
+| `lib/broker.ts` | `SimulatedBroker` — paper trading, trailing stop-loss, position tracking, `addToPosition()` for scaling in |
 | `lib/llm.ts` | `generate()`, `generateStructured<T>()`, `generateStructuredWithRetry<T>()` — Claude via Azure Foundry, default `claude-sonnet-4-6` |
 | `lib/fmp.ts` | `FMPClient` — FMP API wrapper with TTL cache |
 | `lib/signals.ts` | Graham value + momentum signal scoring (returns 0–1) |
@@ -79,12 +79,12 @@ Scheduled by `daemon/scheduler.ts` using luxon (DST-safe ET timezone):
 |-------|---------|-------------|
 | `preMarket` | 09:00 | Cache signals for all agent watchlists |
 | `marketOpen` | 09:35 | `runDecisionPhase()` for all agents (buy/sell) |
-| `midday` | 12:30 | Trailing stop-loss rescan |
+| `midday` | 12:30 | Trailing stop-loss rescan (no LLM calls) |
 | `marketClose` | 15:55 | EOD daily_snapshots |
 | `afterHours` | 16:30 | `runReviewPhase()` → journal + pgvector memory |
 | `weeklyReview` | Sun 20:00 | Evolution engine: LLM rewrites strategy.md for under/over-performers |
 
-Price monitor runs every 5 min during market hours, detecting >3% intraday moves → `respondToAlert()`.
+Price monitor runs every 5 min during market hours, detecting >3% intraday moves → `respondToAlert()`. Each alert is processed by **all** agents holding the affected ticker before being marked as processed. Agents can respond with SELL, HOLD, or SCALE (add to position via `broker.addToPosition()`).
 
 ## Agent Soul Files
 
@@ -99,11 +99,13 @@ The evolution engine (Sunday) reads recent journals + performance metrics and re
 
 ## Key Patterns
 
-**FileStore:** Always use `getFileStore()` — never instantiate `FileStore` or `PgFileStore` directly (except in `scripts/seed.ts`). All daemon phases and `lib/agent.ts` accept `IFileStore`, not the concrete class.
+**FileStore:** Always use `getFileStore()` — never instantiate `FileStore` or `PgFileStore` directly. This applies to **all code** including `app/` frontend pages and API routes. The only exception is `scripts/seed.ts`. All daemon phases and `lib/agent.ts` accept `IFileStore`, not the concrete class.
 
 **Database:** `SimDB` methods are async. The `sql` tagged-template result is cast to `Promise<any[]>` at the class level so `rows[0]` and `rows.length` work without TS index errors.
 
-**Next.js API routes** in `app/api/` must be **read-only** — no DB writes. All mutations go through the daemon.
+**Next.js API routes** in `app/api/` should be read-only, with the exception of `app/api/agents/create/` (agent authoring). All other mutations go through the daemon.
+
+**Agent parameters:** `decisionTemperature` and `convictionMultiplier` are parsed dynamically from each agent's `identity.md` (via `parseAgentParams()` in `lib/agent.ts`), with fallback defaults of 0.5 and 1.0 respectively.
 
 **LLM calls** in the daemon must go through `llmBucket.waitForToken()` before calling `generate()` or `generateStructured()`.
 

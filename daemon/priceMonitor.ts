@@ -7,7 +7,7 @@ import { SimDB } from "../lib/db/repository";
 import { FMPClient } from "../lib/fmp";
 import { type IFileStore } from "../lib/fileStore";
 import { EmbeddingClient } from "../lib/embeddings";
-import { TraderAgent, MarketContext, AgentConfig } from "../lib/agent";
+import { TraderAgent, MarketContext, AgentConfig, parseAgentParams } from "../lib/agent";
 import { TokenBucket } from "./rateLimiter";
 
 const SPIKE_THRESHOLD = 0.03; // 3%
@@ -85,24 +85,24 @@ export async function runPriceMonitor(
     });
   }
 
-  // For each spike, find agents holding that ticker and call respondToAlert()
+  // For each spike, find ALL agents holding that ticker and let each respond
   for (const spike of spikes) {
+    const pendingAlerts = await db.getPendingAlerts();
+    const alert = pendingAlerts.find((a) => a.ticker === spike.ticker && !a.processed);
+    if (!alert) continue;
+
     for (const agentRow of agents) {
       const positions = await db.getPositions(agentRow.id);
       const holds = positions.some((p) => p.ticker === spike.ticker);
       if (!holds) continue;
 
-      // Get pending alert for this ticker
-      const pendingAlerts = await db.getPendingAlerts();
-      const alert = pendingAlerts.find((a) => a.ticker === spike.ticker && !a.processed);
-      if (!alert) continue;
-
+      const identity = await fileStore.loadIdentity(agentRow.id);
+      const params = parseAgentParams(identity);
       const config: AgentConfig = {
         id: agentRow.id,
         name: agentRow.name,
         initialCash: Number(agentRow.initial_cash),
-        decisionTemperature: 0.5,
-        convictionMultiplier: 1.0,
+        ...params,
       };
 
       const trader = new TraderAgent(agentRow.id, config, db, fmp, fileStore, embeddings, llmBucket);
@@ -111,10 +111,12 @@ export async function runPriceMonitor(
           { id: alert.id, ticker: alert.ticker, pct_change: Number(alert.pct_change), price: Number(alert.price), alert_type: alert.alert_type },
           marketContext
         );
-        await db.markAlertProcessed(alert.id);
       } catch (e) {
         console.error(`[priceMonitor] Agent ${agentRow.id} alert response failed:`, (e as Error).message);
       }
     }
+
+    // Mark alert as processed only after ALL holding agents have responded
+    await db.markAlertProcessed(alert.id);
   }
 }
