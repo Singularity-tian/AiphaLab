@@ -1,2 +1,2 @@
-web: pnpm dev
-daemon: pnpm daemon:dev
+web: pnpm start
+daemon: pnpm daemon
