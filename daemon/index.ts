@@ -45,9 +45,14 @@ const dateArg = getArg("--date");
 
 // ---- Market context helper ----
 async function buildMarketContext(date: string) {
+  const fallback = { date, spyReturn1d: 0, spyReturn5d: 0, vixLevel: null as null, marketRegime: "choppy" as const };
   try {
-    const spyHistory = await fmp.getDailyOHLC("SPY", "", date);
+    const fromDate = new Date(date);
+    fromDate.setDate(fromDate.getDate() - 30);
+    const fromStr = fromDate.toISOString().split("T")[0];
+    const spyHistory = await fmp.getDailyOHLC("SPY", fromStr, date);
     const sorted = spyHistory.sort((a: any, b: any) => a.date.localeCompare(b.date));
+    if (sorted.length === 0) return fallback;
     const last = sorted[sorted.length - 1];
     const prev1 = sorted[sorted.length - 2];
     const prev5 = sorted[sorted.length - 6];
@@ -56,7 +61,7 @@ async function buildMarketContext(date: string) {
     const regime = ret5d > 0.02 ? "trending_up" : ret5d < -0.02 ? "trending_down" : "choppy";
     return { date, spyReturn1d: ret1d, spyReturn5d: ret5d, vixLevel: null as null, marketRegime: regime as any };
   } catch {
-    return { date, spyReturn1d: 0, spyReturn5d: 0, vixLevel: null as null, marketRegime: "choppy" as const };
+    return fallback;
   }
 }
 

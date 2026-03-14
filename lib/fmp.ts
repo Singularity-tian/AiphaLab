@@ -62,21 +62,31 @@ export class FMPClient {
     this.key = apiKey();
   }
 
-  /** Batch real-time quotes for up to ~500 tickers (comma-separated). */
-  async getBatchQuotes(tickers: string[]): Promise<Record<string, FMPQuote>> {
-    if (tickers.length === 0) return {};
-    const symbol = tickers.join(",");
-    const url = `${FMP_BASE}/quote/${symbol}?apikey=${this.key}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`FMP quote error: ${res.status}`);
-    const arr: FMPQuote[] = await res.json();
-    return Object.fromEntries(arr.map((q) => [q.symbol, q]));
+  /** Single quote with 60s caching. Uses query-param style required by /stable API. */
+  async getQuote(ticker: string): Promise<FMPQuote | null> {
+    const key = `quote:${ticker}`;
+    return cached(key, 60_000, async () => {
+      const url = `${FMP_BASE}/quote?symbol=${ticker}&apikey=${this.key}`;
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) return null;
+      return data[0] as FMPQuote;
+    });
   }
 
-  /** Single quote — convenience wrapper. */
-  async getQuote(ticker: string): Promise<FMPQuote | null> {
-    const quotes = await this.getBatchQuotes([ticker]);
-    return quotes[ticker] ?? null;
+  /** Batch quotes — fetches individually (batch endpoint not available on current plan). */
+  async getBatchQuotes(tickers: string[]): Promise<Record<string, FMPQuote>> {
+    if (tickers.length === 0) return {};
+    const results = await Promise.allSettled(
+      tickers.map((t) => this.getQuote(t))
+    );
+    const out: Record<string, FMPQuote> = {};
+    for (let i = 0; i < tickers.length; i++) {
+      const r = results[i];
+      if (r.status === "fulfilled" && r.value) out[tickers[i]] = r.value;
+    }
+    return out;
   }
 
   /** Historical daily OHLCV, cached for 1 hour. */

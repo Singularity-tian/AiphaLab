@@ -8,6 +8,9 @@ import { SimDB } from "../../lib/db/repository";
 import { FMPClient } from "../../lib/fmp";
 import { type IFileStore } from "../../lib/fileStore";
 import { computeBatchSignals, SignalResult } from "../../lib/signals";
+import { SP500_UNIVERSE } from "../../lib/persona";
+
+const VALID_TICKERS = new Set(SP500_UNIVERSE);
 
 export interface PreMarketCache {
   date: string;
@@ -38,7 +41,9 @@ export async function runPreMarket(
       const strategy = await fileStore.loadStrategy(agent.id);
       // Extract ticker-like tokens (all-caps, 1-5 chars)
       const matches = strategy.match(/\b[A-Z]{1,5}\b/g) ?? [];
-      for (const t of matches) allTickers.add(t);
+      for (const t of matches) {
+        if (VALID_TICKERS.has(t)) allTickers.add(t);
+      }
     } catch {
       // Agent files not created yet, skip
     }
@@ -47,10 +52,21 @@ export async function runPreMarket(
   const tickers = Array.from(allTickers).slice(0, 200); // cap at 200
   console.log(`[preMarket] Computing signals for ${tickers.length} unique tickers...`);
 
-  const signals = await computeBatchSignals(tickers, date, fmp);
+  const rawSignals = await computeBatchSignals(tickers, date, fmp);
+
+  // Filter out tickers where FMP returned no data (confidence === 0)
+  const signals: Record<string, SignalResult> = {};
+  let filtered = 0;
+  for (const [t, s] of Object.entries(rawSignals)) {
+    if (s.confidence > 0) {
+      signals[t] = s;
+    } else {
+      filtered++;
+    }
+  }
 
   _cache = { date, signals, cachedAt: Date.now() };
-  console.log(`[preMarket] Done — ${Object.keys(signals).length} signals computed.`);
+  console.log(`[preMarket] Done — ${Object.keys(signals).length} signals computed${filtered > 0 ? `, ${filtered} tickers filtered (no data)` : ""}.`);
 
   return _cache;
 }

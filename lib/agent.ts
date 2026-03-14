@@ -11,6 +11,9 @@ import { generateStructuredWithRetry } from "./llm";
 import { type IFileStore, type TickerBelief } from "./fileStore";
 import { EmbeddingClient } from "./embeddings";
 import { TokenBucket } from "../daemon/rateLimiter";
+import { SP500_UNIVERSE } from "./persona";
+
+const VALID_TICKERS = new Set(SP500_UNIVERSE);
 
 // ---- Schemas ----
 
@@ -390,7 +393,7 @@ Respond with JSON: { "action": "SELL" | "HOLD" | "SCALE", "rationale": "..." }`;
   ): string {
     const heldTickers = new Set(broker.positions.keys());
     const topBuys = Object.entries(signals)
-      .filter(([t]) => !heldTickers.has(t))
+      .filter(([t, s]) => !heldTickers.has(t) && s.confidence > 0)
       .sort((a, b) => b[1].combined - a[1].combined)
       .slice(0, 8)
       .map(([t, s]) => `${t}: graham=${(s.factors.graham ?? s.combined).toFixed(2)} momentum=${(s.factors.momentum ?? s.combined).toFixed(2)} combined=${s.combined.toFixed(2)}`)
@@ -446,6 +449,8 @@ ${holdings}
 
 <task>
 You are ${this.config.name}. Based on your identity, strategy, beliefs, recent experience, and today's signals, decide your trading actions.
+
+IMPORTANT: You may ONLY buy tickers listed in TOP BUY CANDIDATES above. You may ONLY sell tickers listed in CURRENT HOLDINGS above. Do not propose tickers not shown in these lists.
 
 Return a JSON array of TradingDecision objects (can be empty array if holding).
 You may return multiple decisions (e.g., sell one and buy another).
@@ -536,7 +541,7 @@ ${review.noteToSelf}
     const seen = new Set<string>();
     const tickers: string[] = [];
     for (const m of matches) {
-      if (!seen.has(m) && m.length >= 1) {
+      if (!seen.has(m) && VALID_TICKERS.has(m)) {
         seen.add(m);
         tickers.push(m);
       }
