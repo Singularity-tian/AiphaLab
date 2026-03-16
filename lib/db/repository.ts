@@ -250,16 +250,18 @@ export class SimDB {
   }>> {
     const rows = await this.sql`
       SELECT a.id, a.name,
-             s.portfolio_value, s.cumulative_return, s.daily_return, s.date AS snap_date,
+             COALESCE(s.portfolio_value, st.portfolio_value, a.initial_cash) AS portfolio_value,
+             s.cumulative_return, s.daily_return, s.date AS snap_date,
              (SELECT COUNT(*) FROM trades WHERE agent_id = a.id)::int AS trade_count
       FROM agents a
-      JOIN (
+      LEFT JOIN agent_state st ON st.agent_id = a.id
+      LEFT JOIN (
         SELECT DISTINCT ON (agent_id) agent_id, portfolio_value, cumulative_return, daily_return, date
         FROM daily_snapshots
         ORDER BY agent_id, date DESC
       ) s ON a.id = s.agent_id
       WHERE a.is_active = true
-      ORDER BY s.cumulative_return DESC NULLS LAST
+      ORDER BY COALESCE(s.cumulative_return, 0) DESC NULLS LAST
       LIMIT ${limit}
     `;
     return rows as unknown as any[];
@@ -384,7 +386,7 @@ export class SimDB {
           COUNT(*) AS day_count,
           MAX(cumulative_return) AS max_cum_ret,
           MIN(cumulative_return) AS min_cum_ret,
-          LAST_VALUE(cumulative_return) OVER (ORDER BY date ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS latest_cum_ret,
+          (SELECT cumulative_return FROM snapshots ORDER BY date DESC LIMIT 1) AS latest_cum_ret,
           AVG(daily_return) AS avg_daily,
           STDDEV(daily_return) AS stddev_daily
         FROM snapshots
