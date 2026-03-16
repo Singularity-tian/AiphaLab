@@ -78,7 +78,7 @@ export default function EquityCurve({ data, initialCash = 100_000 }: Props) {
           tickLine={false}
           axisLine={false}
           interval="preserveStartEnd"
-          tickFormatter={(v) => v.slice(5)} // "MM-DD"
+          tickFormatter={(v) => String(v).slice(5)} // "MM-DD"
         />
         <YAxis
           tick={{ fontSize: 10, fill: "#71717a" }}

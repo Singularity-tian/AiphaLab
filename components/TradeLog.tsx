@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 interface Trade {
   id: number;
@@ -76,9 +76,8 @@ export default function TradeLog({ trades }: Props) {
           </thead>
           <tbody>
             {paged.map((t) => (
-              <>
+              <Fragment key={t.id}>
                 <tr
-                  key={t.id}
                   onClick={() => setExpanded(expanded === t.id ? null : t.id)}
                   style={{ cursor: t.llm_rationale ? "pointer" : "default" }}
                   onMouseEnter={(e) => {
@@ -139,7 +138,7 @@ export default function TradeLog({ trades }: Props) {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
             {trades.length === 0 && (
               <tr>

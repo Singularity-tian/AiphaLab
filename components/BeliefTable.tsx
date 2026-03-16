@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 interface TickerBelief {
   thesis: string;
@@ -94,9 +94,8 @@ export default function BeliefTable({ beliefs }: Props) {
           </thead>
           <tbody>
             {entries.map(([ticker, b]) => (
-              <>
+              <Fragment key={ticker}>
                 <tr
-                  key={ticker}
                   onClick={() =>
                     setExpanded(expanded === ticker ? null : ticker)
                   }
@@ -223,7 +222,7 @@ export default function BeliefTable({ beliefs }: Props) {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>

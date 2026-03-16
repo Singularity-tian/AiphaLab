@@ -105,6 +105,26 @@ export interface PerformanceWindow {
   rank: number;
 }
 
+/** Coerce Postgres NUMERIC→number and DATE→string for Neon driver compatibility. */
+function coerceRow<T>(row: any, numericFields: string[], dateFields: string[] = []): T {
+  const out = { ...row };
+  for (const f of numericFields) {
+    if (out[f] != null) out[f] = Number(out[f]);
+  }
+  for (const f of dateFields) {
+    if (out[f] instanceof Date) {
+      out[f] = out[f].toISOString().slice(0, 10);
+    }
+  }
+  return out as T;
+}
+
+const AGENT_NUM = ["initial_cash"];
+const STATE_NUM = ["cash", "portfolio_value", "total_pnl"];
+const POSITION_NUM = ["shares", "entry_price", "trailing_high", "cost_basis"];
+const TRADE_NUM = ["shares", "price", "value", "commission", "cash_after", "signal_score"];
+const SNAPSHOT_NUM = ["portfolio_value", "cash", "position_value", "daily_return", "cumulative_return"];
+
 export class SimDB {
   // Cast to any[] return so rows[0] and rows.length work without index errors
   private sql = getDb() as unknown as (template: TemplateStringsArray, ...values: unknown[]) => Promise<any[]>;
@@ -121,12 +141,12 @@ export class SimDB {
 
   async getAllAgents(): Promise<AgentRow[]> {
     const rows = await this.sql`SELECT * FROM agents WHERE is_active = true ORDER BY id`;
-    return rows as unknown as AgentRow[];
+    return (rows as any[]).map((r) => coerceRow<AgentRow>(r, AGENT_NUM));
   }
 
   async getAgent(id: number): Promise<AgentRow | null> {
     const rows = await this.sql`SELECT * FROM agents WHERE id = ${id}`;
-    return (rows[0] as unknown as AgentRow) ?? null;
+    return rows[0] ? coerceRow<AgentRow>(rows[0], AGENT_NUM) : null;
   }
 
   async deleteAgent(id: number): Promise<void> {
@@ -150,7 +170,7 @@ export class SimDB {
 
   async getAgentState(agentId: number): Promise<AgentStateRow | null> {
     const rows = await this.sql`SELECT * FROM agent_state WHERE agent_id = ${agentId}`;
-    return (rows[0] as unknown as AgentStateRow) ?? null;
+    return rows[0] ? coerceRow<AgentStateRow>(rows[0], STATE_NUM, ["last_run_date"]) : null;
   }
 
   // ---- positions ----
@@ -173,7 +193,7 @@ export class SimDB {
 
   async getPositions(agentId: number): Promise<PositionRow[]> {
     const rows = await this.sql`SELECT * FROM positions WHERE agent_id = ${agentId}`;
-    return rows as unknown as PositionRow[];
+    return (rows as any[]).map((r) => coerceRow<PositionRow>(r, POSITION_NUM, ["entry_date"]));
   }
 
   // ---- trades ----
@@ -192,14 +212,14 @@ export class SimDB {
       SELECT * FROM trades WHERE agent_id = ${agentId}
       ORDER BY date DESC, id DESC LIMIT ${limit}
     `;
-    return rows as unknown as TradeRow[];
+    return (rows as any[]).map((r) => coerceRow<TradeRow>(r, TRADE_NUM, ["date"]));
   }
 
   async getTradesByDate(agentId: number, date: string): Promise<TradeRow[]> {
     const rows = await this.sql`
       SELECT * FROM trades WHERE agent_id = ${agentId} AND date = ${date}
     `;
-    return rows as unknown as TradeRow[];
+    return (rows as any[]).map((r) => coerceRow<TradeRow>(r, TRADE_NUM, ["date"]));
   }
 
   // ---- daily_snapshots ----
@@ -221,14 +241,14 @@ export class SimDB {
     const rows = await this.sql`
       SELECT * FROM daily_snapshots WHERE agent_id = ${agentId} ORDER BY date ASC
     `;
-    return rows as unknown as SnapshotRow[];
+    return (rows as any[]).map((r) => coerceRow<SnapshotRow>(r, SNAPSHOT_NUM, ["date"]));
   }
 
   async getLatestSnapshot(agentId: number): Promise<SnapshotRow | null> {
     const rows = await this.sql`
       SELECT * FROM daily_snapshots WHERE agent_id = ${agentId} ORDER BY date DESC LIMIT 1
     `;
-    return (rows[0] as unknown as SnapshotRow) ?? null;
+    return rows[0] ? coerceRow<SnapshotRow>(rows[0], SNAPSHOT_NUM, ["date"]) : null;
   }
 
   async hasSnapshot(agentId: number, date: string): Promise<boolean> {
@@ -264,7 +284,7 @@ export class SimDB {
       ORDER BY COALESCE(s.cumulative_return, 0) DESC NULLS LAST
       LIMIT ${limit}
     `;
-    return rows as unknown as any[];
+    return (rows as any[]).map((r) => coerceRow(r, ["portfolio_value", "cumulative_return", "daily_return"], ["snap_date"]));
   }
 
   // ---- episodic memory ----
