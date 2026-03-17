@@ -329,6 +329,9 @@ export class SimulatedBroker {
       await db.deletePosition(this.agentId, ticker);
     }
 
+    // Persist updated cash so subsequent fromDB() calls see post-trade balance
+    await db.updateAgentCash(this.agentId, this.cash);
+
     this.pendingTrades = [];
   }
 

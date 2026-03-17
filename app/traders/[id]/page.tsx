@@ -41,12 +41,19 @@ async function getTraderData(id: number) {
   const agent = await db.getAgent(id);
   if (!agent) return null;
 
+  const { FMPClient } = await import("@/lib/fmp");
+  const fmp = new FMPClient();
+
   const [state, snapshots, trades, positions] = await Promise.all([
     db.getAgentState(id),
     db.getSnapshots(id),
     db.getTrades(id, 200),
     db.getPositions(id),
   ]);
+
+  // Fetch current market prices for open positions
+  const posTickers = positions.map((p) => p.ticker);
+  const quotes = posTickers.length > 0 ? await fmp.getBatchQuotes(posTickers) : {};
 
   let persona = parseIdentityMd("", agent.name);
   let review: { date: string; review_text: string; mood: string | null } | null = null;
@@ -81,7 +88,7 @@ async function getTraderData(id: number) {
     }
   } catch {}
 
-  return { agent, persona, state, review, snapshots, trades, positions, beliefs, strategyMd };
+  return { agent, persona, state, review, snapshots, trades, positions, beliefs, strategyMd, quotes };
 }
 
 const KPI = ({ label, value, color }: { label: string; value: string; color?: string }) => (
@@ -126,7 +133,7 @@ export default async function TraderProfilePage({ params }: Props) {
     );
   }
 
-  const { agent, persona, state, review, snapshots, trades, positions, beliefs, strategyMd } = data;
+  const { agent, persona, state, review, snapshots, trades, positions, beliefs, strategyMd, quotes } = data;
   const snap = snapshots[snapshots.length - 1];
   const portfolioValue = snap?.portfolio_value ?? agent.initial_cash;
   const totalReturn = snap?.cumulative_return ?? 0;
@@ -287,7 +294,7 @@ export default async function TraderProfilePage({ params }: Props) {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["Ticker", "Shares", "Entry Price", "Entry Date"].map((h) => (
+                      {["Ticker", "Shares", "Entry Price", "Current Price", "Mkt Value", "P/L %", "Entry Date"].map((h) => (
                         <th
                           key={h}
                           style={{
@@ -308,22 +315,37 @@ export default async function TraderProfilePage({ params }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {positions.map((p) => (
-                      <tr key={p.ticker}>
-                        <td style={{ padding: "8px 16px", borderBottom: "1px solid #1c1c1f", fontSize: 12, color: "#fafafa", fontWeight: 500 }}>
-                          {p.ticker}
-                        </td>
-                        <td style={{ padding: "8px 16px", borderBottom: "1px solid #1c1c1f", fontSize: 12, color: "#a1a1aa" }}>
-                          {p.shares}
-                        </td>
-                        <td style={{ padding: "8px 16px", borderBottom: "1px solid #1c1c1f", fontSize: 12, color: "#a1a1aa" }}>
-                          ${p.entry_price.toFixed(2)}
-                        </td>
-                        <td style={{ padding: "8px 16px", borderBottom: "1px solid #1c1c1f", fontSize: 12, color: "#a1a1aa" }}>
-                          {p.entry_date}
-                        </td>
-                      </tr>
-                    ))}
+                    {positions.map((p) => {
+                      const currentPrice = quotes[p.ticker]?.price ?? p.entry_price;
+                      const mktValue = currentPrice * p.shares;
+                      const plPct = (currentPrice - p.entry_price) / p.entry_price;
+                      const plColor = plPct >= 0 ? "#22c55e" : "#ef4444";
+                      return (
+                        <tr key={p.ticker}>
+                          <td style={{ padding: "8px 16px", borderBottom: "1px solid #1c1c1f", fontSize: 12, color: "#fafafa", fontWeight: 500 }}>
+                            {p.ticker}
+                          </td>
+                          <td style={{ padding: "8px 16px", borderBottom: "1px solid #1c1c1f", fontSize: 12, color: "#a1a1aa" }}>
+                            {p.shares}
+                          </td>
+                          <td style={{ padding: "8px 16px", borderBottom: "1px solid #1c1c1f", fontSize: 12, color: "#a1a1aa" }}>
+                            ${p.entry_price.toFixed(2)}
+                          </td>
+                          <td style={{ padding: "8px 16px", borderBottom: "1px solid #1c1c1f", fontSize: 12, color: "#a1a1aa" }}>
+                            ${currentPrice.toFixed(2)}
+                          </td>
+                          <td style={{ padding: "8px 16px", borderBottom: "1px solid #1c1c1f", fontSize: 12, color: "#a1a1aa" }}>
+                            ${mktValue.toLocaleString("en", { maximumFractionDigits: 0 })}
+                          </td>
+                          <td style={{ padding: "8px 16px", borderBottom: "1px solid #1c1c1f", fontSize: 12, color: plColor, fontWeight: 500 }}>
+                            {plPct >= 0 ? "+" : ""}{(plPct * 100).toFixed(2)}%
+                          </td>
+                          <td style={{ padding: "8px 16px", borderBottom: "1px solid #1c1c1f", fontSize: 12, color: "#a1a1aa" }}>
+                            {p.entry_date}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -168,6 +168,10 @@ export class SimDB {
     `;
   }
 
+  async updateAgentCash(agentId: number, cash: number): Promise<void> {
+    await this.sql`UPDATE agent_state SET cash = ${cash} WHERE agent_id = ${agentId}`;
+  }
+
   async getAgentState(agentId: number): Promise<AgentStateRow | null> {
     const rows = await this.sql`SELECT * FROM agent_state WHERE agent_id = ${agentId}`;
     return rows[0] ? coerceRow<AgentStateRow>(rows[0], STATE_NUM, ["last_run_date"]) : null;
@@ -213,6 +217,10 @@ export class SimDB {
       ORDER BY date DESC, id DESC LIMIT ${limit}
     `;
     return (rows as any[]).map((r) => coerceRow<TradeRow>(r, TRADE_NUM, ["date"]));
+  }
+
+  async updateTradeCashAfter(tradeId: number, cashAfter: number): Promise<void> {
+    await this.sql`UPDATE trades SET cash_after = ${cashAfter} WHERE id = ${tradeId}`;
   }
 
   async getTradesByDate(agentId: number, date: string): Promise<TradeRow[]> {
