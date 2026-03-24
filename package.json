@@ -9,6 +9,7 @@
     "daemon": "tsx daemon/index.ts",
     "daemon:dev": "tsx --watch daemon/index.ts",
     "seed": "tsx scripts/seed.ts",
+    "add-traders": "tsx scripts/add-traders.ts",
     "run": "tsx scripts/run.ts",
     "migrate": "tsx scripts/migrate.ts",
     "typecheck": "tsc --noEmit"

@@ -1,5 +1,7 @@
 import TraderCard from "@/components/TraderCard";
 
+export const dynamic = "force-dynamic";
+
 async function getAgents() {
   try {
     const { SimDB } = await import("@/lib/db/repository");

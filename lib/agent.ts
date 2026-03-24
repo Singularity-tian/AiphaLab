@@ -392,17 +392,22 @@ Respond with JSON: { "action": "SELL" | "HOLD" | "SCALE", "rationale": "..." }`;
     ctx: MarketContext
   ): string {
     const heldTickers = new Set(broker.positions.keys());
+    const formatFactors = (s: SignalResult) => {
+      const f = s.factors;
+      return `combined=${s.combined.toFixed(2)} | pe=${(f.pe ?? 0.5).toFixed(2)} pb=${(f.pb ?? 0.5).toFixed(2)} roe=${(f.roe ?? 0.5).toFixed(2)} fcf=${(f.fcf_yield ?? 0.5).toFixed(2)} div=${(f.dividend_yield ?? 0.5).toFixed(2)} eps_trend=${(f.eps_trend ?? 0.5).toFixed(2)} momentum=${(f.momentum ?? 0.5).toFixed(2)} rsi=${(f.rsi ?? 0.5).toFixed(2)} vol=${(f.volatility ?? 0.5).toFixed(2)} rvol=${(f.relative_volume ?? 0.5).toFixed(2)}`;
+    };
     const topBuys = Object.entries(signals)
       .filter(([t, s]) => !heldTickers.has(t) && s.confidence > 0)
       .sort((a, b) => b[1].combined - a[1].combined)
       .slice(0, 8)
-      .map(([t, s]) => `${t}: graham=${(s.factors.graham ?? s.combined).toFixed(2)} momentum=${(s.factors.momentum ?? s.combined).toFixed(2)} combined=${s.combined.toFixed(2)}`)
+      .map(([t, s]) => `${t}: ${formatFactors(s)}`)
       .join("\n");
 
     const holdings = Array.from(broker.positions.keys())
       .map((t) => {
         const s = signals[t];
-        return `${t}: combined=${s?.combined.toFixed(2) ?? "N/A"}`;
+        if (!s) return `${t}: signals=N/A`;
+        return `${t}: ${formatFactors(s)}`;
       })
       .join("\n") || "(none)";
 
@@ -446,6 +451,18 @@ ${topBuys}
 CURRENT HOLDINGS:
 ${holdings}
 </today_signals>
+
+<signal_legend>
+All signal scores are 0.0-1.0:
+- pe, pb: higher = cheaper vs own history (better value)
+- roe, fcf: higher = better quality management/cash generation
+- div: higher = better dividend yield
+- eps_trend: higher = earnings accelerating
+- momentum: higher = stronger 12-1 month uptrend
+- rsi: <0.30 = oversold (potential reversal), >0.70 = overbought
+- vol: higher = lower volatility (safer/more stable)
+- rvol: higher = above-average trading volume (more activity)
+</signal_legend>
 
 <task>
 You are ${this.config.name}. Based on your identity, strategy, beliefs, recent experience, and today's signals, decide your trading actions.
