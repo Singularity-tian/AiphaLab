@@ -1,0 +1,123 @@
+name: "AutoFix: Railway Error Monitor"
+
+on:
+  schedule:
+    # Weekdays 06:00 UTC (01:00 ET), after all market phases complete
+    - cron: "0 6 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      lookback:
+        description: "Log lookback period (e.g. 24h, 2d)"
+        required: false
+        default: "24h"
+
+concurrency:
+  group: autofix
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  autofix:
+    name: "Collect errors & auto-fix"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Install Railway CLI ─────────────────────────────────────
+      - name: Install Railway CLI
+        run: |
+          curl -fsSL https://railway.com/install.sh | sh
+          echo "$HOME/.railway/bin" >> "$GITHUB_PATH"
+
+      # ── 3. Fetch daemon logs ───────────────────────────────────────
+      - name: Fetch Railway production logs
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+          LOOKBACK: ${{ inputs.lookback || '24h' }}
+        run: bash scripts/autofix/fetch-railway-logs.sh
+
+      # ── 4. Setup pnpm + Node ───────────────────────────────────────
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # ── 5. Extract & deduplicate errors ─────────────────────────────
+      - name: Extract errors
+        run: node scripts/autofix/extract-errors.mjs
+
+      # ── 6. Build Claude prompt ──────────────────────────────────────
+      - name: Build prompt
+        run: node scripts/autofix/build-prompt.mjs
+
+      # ── 7. Early exit if no errors ──────────────────────────────────
+      - name: Check for actionable errors
+        id: check
+        run: |
+          if [ ! -s /tmp/autofix-prompt.md ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No actionable errors found. Skipping Claude Code."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Actionable errors found — invoking Claude Code."
+          fi
+
+      # ── 8. Claude Code auto-fix ─────────────────────────────────────
+      - name: Claude Code AutoFix
+        if: steps.check.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          use_foundry: "true"
+          prompt_file: /tmp/autofix-prompt.md
+          allowed_tools: |
+            Bash(pnpm typecheck)
+            Bash(pnpm build)
+            Read
+            Write
+            Edit
+            Glob
+            Grep
+          max_turns: 30
+          timeout_minutes: 15
+        env:
+          ANTHROPIC_FOUNDRY_API_KEY: ${{ secrets.ANTHROPIC_FOUNDRY_API_KEY }}
+          ANTHROPIC_FOUNDRY_BASE_URL: ${{ secrets.ANTHROPIC_FOUNDRY_BASE_URL }}
+
+      # ── 9. Summary ──────────────────────────────────────────────────
+      - name: Write summary
+        if: always()
+        run: |
+          echo "## AutoFix Run Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Date**: $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Lookback**: ${{ inputs.lookback || '24h' }}" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f /tmp/autofix-errors.json ]; then
+            COUNT=$(node -e "console.log(JSON.parse(require('fs').readFileSync('/tmp/autofix-errors.json','utf-8')).length)")
+            echo "- **Actionable errors**: ${COUNT}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- **Actionable errors**: 0" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "- **Claude Code ran**: ${{ steps.check.outputs.skip != 'true' && 'yes' || 'no' }}" >> "$GITHUB_STEP_SUMMARY"
