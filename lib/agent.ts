@@ -27,7 +27,7 @@ const TradingDecisionSchema = z.object({
 });
 export type TradingDecision = z.infer<typeof TradingDecisionSchema>;
 
-const TradingDecisionsSchema = z.array(TradingDecisionSchema).min(0).max(5);
+const TradingDecisionsSchema = z.array(TradingDecisionSchema).min(0).max(20);
 
 const DayReviewSchema = z.object({
   mood: z.enum(["bullish", "cautious", "frustrated", "confident", "anxious", "neutral", "euphoric", "depressed"]),
@@ -471,6 +471,7 @@ IMPORTANT: You may ONLY buy tickers listed in TOP BUY CANDIDATES above. You may 
 
 Return a JSON array of TradingDecision objects (can be empty array if holding).
 You may return multiple decisions (e.g., sell one and buy another).
+Return at most 20 decisions total.
 Each must include a rationale grounded in your strategy document.
 
 Schema: [{ "action": "BUY"|"SELL"|"HOLD", "ticker": "AAPL", "conviction": 0.0-1.0, "dollarAmount": 5000, "rationale": "...", "overridingSignal": false }]

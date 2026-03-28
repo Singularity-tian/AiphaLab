@@ -58,14 +58,11 @@ export async function generateStructured<T>(
   const block = msg.content[0];
   const raw = block.type === "text" ? block.text : "{}";
 
-  // Strip markdown code fences if model wrapped the JSON
-  const cleaned = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
-
-  const parsed = JSON.parse(cleaned);
+  const parsed = extractJson(raw);
   return schema.parse(parsed);
 }
 
-/** Retry wrapper — retries up to 3 times on failure. */
+/** Retry wrapper — retries up to 3 times, feeding back errors so the LLM can self-correct. */
 export async function generateStructuredWithRetry<T>(
   prompt: string,
   schema: z.ZodType<T>,
@@ -74,15 +71,59 @@ export async function generateStructuredWithRetry<T>(
   systemPrompt = ""
 ): Promise<T> {
   let lastError: unknown;
+  let currentPrompt = prompt;
   for (let i = 0; i < 3; i++) {
     try {
-      return await generateStructured(prompt, schema, temperature, model, systemPrompt);
+      return await generateStructured(currentPrompt, schema, temperature, model, systemPrompt);
     } catch (e) {
       lastError = e;
+      const errMsg = (e as Error).message;
+      currentPrompt = prompt + `\n\n[SYSTEM: Your previous response was invalid: ${errMsg}. Please fix and respond with ONLY valid JSON.]`;
       if (i < 2) await sleep(1000 * (i + 1));
     }
   }
   throw lastError;
+}
+
+/**
+ * Extract JSON from LLM output that may contain markdown fences or trailing text.
+ * Tries direct parse first (fast path), then falls back to bracket-aware extraction.
+ */
+function extractJson(raw: string): unknown {
+  // Strip markdown code fences
+  const text = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
+
+  // Fast path: direct parse
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Fall through to bracket matching
+  }
+
+  // Find the first [ or { and extract the matching balanced structure
+  const startIdx = text.search(/[\[{]/);
+  if (startIdx === -1) throw new SyntaxError("No JSON structure found in LLM output");
+
+  const openChar = text[startIdx];
+  const closeChar = openChar === "[" ? "]" : "}";
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = startIdx; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\") { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === openChar) depth++;
+    if (ch === closeChar) depth--;
+    if (depth === 0) {
+      return JSON.parse(text.slice(startIdx, i + 1));
+    }
+  }
+
+  throw new SyntaxError("Unbalanced JSON structure in LLM output");
 }
 
 function sleep(ms: number) {
