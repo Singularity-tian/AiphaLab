@@ -20,14 +20,25 @@ LOOKBACK="${LOOKBACK:-24h}"
 
 echo "[fetch-logs] Fetching daemon logs (last ${LOOKBACK})..."
 
-railway logs \
+STDERR_LOG=$(mktemp)
+
+if railway logs \
   --project "$RAILWAY_PROJECT_ID" \
   --service "$RAILWAY_SERVICE_ID" \
   --environment "$RAILWAY_ENVIRONMENT_ID" \
   --since "$LOOKBACK" \
   --lines 2000 \
   --json \
-  > /tmp/railway-logs.json 2>/dev/null || true
+  > /tmp/railway-logs.json 2>"$STDERR_LOG"; then
+  :
+else
+  echo "::warning::Railway CLI exited with non-zero status. stderr:"
+  cat "$STDERR_LOG" >&2
+  # Ensure downstream scripts see an empty file instead of missing/partial
+  : > /tmp/railway-logs.json
+fi
+
+rm -f "$STDERR_LOG"
 
 LINE_COUNT=$(wc -l < /tmp/railway-logs.json 2>/dev/null || echo 0)
 echo "[fetch-logs] Fetched ${LINE_COUNT} log lines."
