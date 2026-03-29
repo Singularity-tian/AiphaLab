@@ -23,7 +23,8 @@
       "Bash(pnpm remove:*)",
       "Bash(pnpm daemon:*)",
       "Bash(grep -r \"export.*log\\\\|class.*Logger\\\\|function.*log\" /Users/tianyizhang/Desktop/Coding/aiphalab/lib --include=*.ts)",
-      "Bash(grep -r \"export.*log\\\\|class.*Logger\\\\|function.*log\" /Users/tianyizhang/Desktop/Coding/aiphalab/daemon --include=*.ts)"
+      "Bash(grep -r \"export.*log\\\\|class.*Logger\\\\|function.*log\" /Users/tianyizhang/Desktop/Coding/aiphalab/daemon --include=*.ts)",
+      "Bash(pnpm build:*)"
     ]
   }
 }
