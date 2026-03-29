@@ -45,21 +45,31 @@ const dateArg = getArg("--date");
 
 // ---- Market context helper ----
 async function buildMarketContext(date: string) {
-  const fallback = { date, spyReturn1d: 0, spyReturn5d: 0, vixLevel: null as null, marketRegime: "choppy" as const };
+  const fallback = { date, spyReturn1d: 0, spyReturn5d: 0, vixLevel: null as number | null, marketRegime: "choppy" as const };
   try {
     const fromDate = new Date(date);
     fromDate.setDate(fromDate.getDate() - 30);
     const fromStr = fromDate.toISOString().split("T")[0];
-    const spyHistory = await fmp.getDailyOHLC("SPY", fromStr, date);
+
+    // Fetch SPY history and VIX quote in parallel
+    const [spyHistory, vixQuote] = await Promise.all([
+      fmp.getDailyOHLC("SPY", fromStr, date),
+      fmp.getQuote("^VIX").catch(() => null),
+    ]);
+
     const sorted = spyHistory.sort((a: any, b: any) => a.date.localeCompare(b.date));
-    if (sorted.length === 0) return fallback;
+    if (sorted.length < 2) {
+      console.warn(`[daemon] Insufficient SPY data (${sorted.length} bars) — market context may be inaccurate`);
+      if (sorted.length === 0) return fallback;
+    }
     const last = sorted[sorted.length - 1];
     const prev1 = sorted[sorted.length - 2];
     const prev5 = sorted[sorted.length - 6];
     const ret1d = prev1 ? (last.close - prev1.close) / prev1.close : 0;
     const ret5d = prev5 ? (last.close - prev5.close) / prev5.close : 0;
     const regime = ret5d > 0.02 ? "trending_up" : ret5d < -0.02 ? "trending_down" : "choppy";
-    return { date, spyReturn1d: ret1d, spyReturn5d: ret5d, vixLevel: null as null, marketRegime: regime as any };
+    const vixLevel = vixQuote?.price ?? null;
+    return { date, spyReturn1d: ret1d, spyReturn5d: ret5d, vixLevel, marketRegime: regime as any };
   } catch {
     return fallback;
   }
@@ -86,10 +96,18 @@ async function runSinglePhase(phase: string, date: string) {
 
 // ---- Heartbeat loop ----
 async function heartbeatLoop() {
+  let consecutiveFailures = 0;
   while (true) {
     try {
       await db.upsertDaemonHeartbeat("idle", VERSION);
-    } catch {}
+      consecutiveFailures = 0;
+    } catch (e) {
+      consecutiveFailures++;
+      console.error(`[daemon] Heartbeat failed (${consecutiveFailures}x):`, (e as Error).message);
+      if (consecutiveFailures >= 3) {
+        console.error(`[daemon] WARNING: ${consecutiveFailures} consecutive heartbeat failures — DB may be unreachable`);
+      }
+    }
     await new Promise((r) => setTimeout(r, 60_000));
   }
 }

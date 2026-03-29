@@ -30,7 +30,10 @@ export async function generate(
     messages: [{ role: "user", content: prompt }],
   });
   const block = msg.content[0];
-  return block.type === "text" ? block.text : "";
+  if (!block || block.type !== "text") {
+    throw new Error(`Unexpected LLM response: ${block?.type ?? "empty content"}`);
+  }
+  return block.text;
 }
 
 /**
@@ -56,7 +59,10 @@ export async function generateStructured<T>(
   });
 
   const block = msg.content[0];
-  const raw = block.type === "text" ? block.text : "{}";
+  if (!block || block.type !== "text") {
+    throw new Error(`Unexpected LLM response for structured generation: ${block?.type ?? "empty content"}`);
+  }
+  const raw = block.text;
 
   const parsed = extractJson(raw);
   return schema.parse(parsed);

@@ -34,7 +34,7 @@ export async function runAfterHours(
   let journalsWritten = 0;
 
   for (const batch of chunk(remaining, 5)) {
-    await Promise.all(
+    const results = await Promise.all(
       batch.map(async (agentRow) => {
         const identity = await fileStore.loadIdentity(agentRow.id);
         const params = parseAgentParams(identity);
@@ -48,12 +48,14 @@ export async function runAfterHours(
         const trader = new TraderAgent(agentRow.id, config, db, fmp, fileStore, embeddings, llmBucket);
         try {
           await trader.runReviewPhase(marketContext);
-          journalsWritten++;
+          return true;
         } catch (e) {
           console.error(`[afterHours] Agent ${agentRow.id} failed:`, (e as Error).message);
+          return false;
         }
       })
     );
+    journalsWritten += results.filter(Boolean).length;
     await db.updatePhaseLogProgress("afterHours", date, batch[batch.length - 1].id);
   }
 

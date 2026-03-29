@@ -170,14 +170,23 @@ export async function computeSignals(
   asOfDate: string,
   fmp: FMPClient,
 ): Promise<SignalResult> {
+  let ratios: FinancialRatios[] = [];
+  let ohlcv: OHLCV[] = [];
+
   try {
-    const [ratios, ohlcv] = await Promise.all([
+    [ratios, ohlcv] = await Promise.all([
       fmp.getFinancialRatios(ticker),
       fmp.getDailyOHLC(ticker, subtractDays(asOfDate, 400), asOfDate),
     ]);
+  } catch (e) {
+    console.warn(`[signals] ${ticker}: data fetch failed — ${(e as Error).message}`);
+    return { combined: 0.5, factors: {}, confidence: 0 };
+  }
 
+  try {
     const factors: Record<string, number> = {};
 
+    // Value factors (from financial ratios)
     factors.pe = peScore(ratios);
     factors.pb = pbScore(ratios);
     factors.current_ratio = currentRatioScore(ratios);
@@ -185,6 +194,11 @@ export async function computeSignals(
     factors.eps_trend = epsTrendScore(ratios);
     factors.roe = roeScore(ratios);
     factors.fcf_yield = fcfYieldScore(ratios);
+
+    // Technical factors (from OHLCV — require sufficient history)
+    if (ohlcv.length < 22) {
+      console.warn(`[signals] ${ticker}: only ${ohlcv.length} OHLCV bars (need ≥22 for technicals)`);
+    }
     factors.momentum = momentumScore(ohlcv, asOfDate);
     factors.rsi = rsiScore(ohlcv, asOfDate);
     factors.volatility = volatilityScore(ohlcv, asOfDate);
@@ -195,7 +209,8 @@ export async function computeSignals(
     const confidence = Math.min(ratios.length / 8, 1.0);
 
     return { combined, factors, confidence };
-  } catch {
+  } catch (e) {
+    console.warn(`[signals] ${ticker}: factor computation failed — ${(e as Error).message}`);
     return { combined: 0.5, factors: {}, confidence: 0 };
   }
 }

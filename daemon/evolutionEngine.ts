@@ -115,6 +115,13 @@ Rewrite the strategy.md document with these constraints:
 Return the complete new strategy.md content (markdown, no code fences).`;
 
   const newStrategy = await generate(strategyPrompt, "", 0.6);
+
+  // Validate that the LLM produced a non-trivial strategy
+  if (!newStrategy || newStrategy.trim().length < 100) {
+    console.error(`[evolution] Agent ${agentId}: LLM returned empty/tiny strategy (${newStrategy?.length ?? 0} chars) — skipping`);
+    return;
+  }
+
   await fileStore.writeStrategy(agentId, newStrategy);
 
   const newStrategyHash = crypto.createHash("md5").update(newStrategy).digest("hex");
@@ -146,6 +153,13 @@ Make MINOR adjustments to the identity's Parameters section only:
 Return the complete updated identity.md (markdown, no code fences).`;
 
   const newIdentity = await generate(identityPrompt, "", 0.4);
+
+  // Validate that the LLM produced a non-trivial identity
+  if (!newIdentity || newIdentity.trim().length < 100) {
+    console.error(`[evolution] Agent ${agentId}: LLM returned empty/tiny identity (${newIdentity?.length ?? 0} chars) — skipping identity update`);
+    return;
+  }
+
   await fileStore.writeIdentity(agentId, newIdentity);
 
   const newIdentityHash = crypto.createHash("md5").update(newIdentity).digest("hex");

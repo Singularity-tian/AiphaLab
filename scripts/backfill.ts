@@ -12,7 +12,7 @@ import { type IFileStore, getFileStore } from "../lib/fileStore";
 import { getFmp } from "../lib/fmp";
 import { EmbeddingClient, getEmbeddingClient } from "../lib/embeddings";
 import { generateStructuredWithRetry } from "../lib/llm";
-import { TraderAgent, MarketContext, AgentConfig } from "../lib/agent";
+import { TraderAgent, MarketContext, AgentConfig, parseAgentParams } from "../lib/agent";
 import { createTokenBucket } from "../daemon/rateLimiter";
 
 const args = process.argv.slice(2);
@@ -42,8 +42,15 @@ function getBusinessDays(from: string, to: string): string[] {
 
 async function buildMarketContext(date: string, fmp: ReturnType<typeof getFmp>): Promise<MarketContext> {
   try {
-    const spyHistory = await fmp.getDailyOHLC("SPY", "", date);
+    const fromDate = new Date(date);
+    fromDate.setDate(fromDate.getDate() - 30);
+    const fromStr = fromDate.toISOString().split("T")[0];
+
+    const spyHistory = await fmp.getDailyOHLC("SPY", fromStr, date);
     const sorted = spyHistory.sort((a: any, b: any) => a.date.localeCompare(b.date));
+    if (sorted.length < 2) {
+      return { date, spyReturn1d: 0, spyReturn5d: 0, vixLevel: null, marketRegime: "choppy" };
+    }
     const last = sorted[sorted.length - 1];
     const prev1 = sorted[sorted.length - 2];
     const prev5 = sorted[sorted.length - 6];
@@ -97,12 +104,13 @@ async function main() {
       const existing = await db.hasSnapshot(agentRow.id, date);
       if (existing) { processed++; continue; }
 
+      const identity = await fileStore.loadIdentity(agentRow.id);
+      const params = parseAgentParams(identity);
       const config: AgentConfig = {
         id: agentRow.id,
         name: agentRow.name,
         initialCash: Number(agentRow.initial_cash),
-        decisionTemperature: 0.5,
-        convictionMultiplier: 1.0,
+        ...params,
       };
 
       const trader = new TraderAgent(agentRow.id, config, db, fmp, fileStore, embeddings, llmBucket);

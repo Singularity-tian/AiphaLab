@@ -13,6 +13,7 @@ interface Review {
   date: string;
   review_text: string;
   mood: string | null;
+  dailyReturn?: number | null;
 }
 
 export default function DailyReview({ review }: { review: Review | null }) {
@@ -64,6 +65,21 @@ export default function DailyReview({ review }: { review: Review | null }) {
               }}
             >
               {MOOD_EMOJI[review.mood] ?? "⚪"} {review.mood}
+            </span>
+          )}
+          {review.dailyReturn != null && (
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 500,
+                color: review.dailyReturn >= 0 ? "#22c55e" : "#ef4444",
+                background: "#1e1e22",
+                border: "1px solid #27272a",
+                padding: "3px 10px",
+                borderRadius: 3,
+              }}
+            >
+              {review.dailyReturn >= 0 ? "+" : ""}{(review.dailyReturn * 100).toFixed(2)}%
             </span>
           )}
           <span style={{ fontSize: 11, color: "#71717a" }}>{review.date}</span>

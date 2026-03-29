@@ -28,7 +28,9 @@ export class EmbeddingClient {
     });
 
     if (!response.ok) {
-      console.error(`Embedding API error: ${response.status}`);
+      let detail = "";
+      try { const body = await response.json(); detail = (body as any).error?.message ?? JSON.stringify(body); } catch { detail = await response.text().catch(() => ""); }
+      console.error(`[embeddings] API error ${response.status}: ${detail}`);
       return new Array(EMBEDDING_DIM).fill(0);
     }
 
@@ -51,7 +53,9 @@ export class EmbeddingClient {
     });
 
     if (!response.ok) {
-      console.error(`Embedding API error: ${response.status}`);
+      let detail = "";
+      try { const body = await response.json(); detail = (body as any).error?.message ?? JSON.stringify(body); } catch { detail = await response.text().catch(() => ""); }
+      console.error(`[embeddings] Batch API error ${response.status}: ${detail}`);
       return texts.map(() => new Array(EMBEDDING_DIM).fill(0));
     }
 

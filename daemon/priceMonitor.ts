@@ -11,6 +11,7 @@ import { TraderAgent, MarketContext, AgentConfig, parseAgentParams } from "../li
 import { TokenBucket } from "./rateLimiter";
 
 const SPIKE_THRESHOLD = 0.03; // 3%
+const PRICE_HISTORY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 interface TickerSnapshot {
   price: number;
@@ -18,6 +19,14 @@ interface TickerSnapshot {
 }
 
 const priceHistory = new Map<string, TickerSnapshot>();
+
+/** Remove stale entries from priceHistory to prevent unbounded memory growth. */
+function cleanupPriceHistory() {
+  const cutoff = Date.now() - PRICE_HISTORY_TTL_MS;
+  for (const [ticker, snap] of priceHistory) {
+    if (snap.timestamp < cutoff) priceHistory.delete(ticker);
+  }
+}
 
 export async function runPriceMonitor(
   date: string,
@@ -28,6 +37,9 @@ export async function runPriceMonitor(
   embeddings: EmbeddingClient,
   llmBucket: TokenBucket
 ): Promise<void> {
+  // Clean up stale price history entries
+  cleanupPriceHistory();
+
   // Collect all unique tickers currently held by any agent
   const agents = await db.getAllAgents();
   const heldTickers = new Set<string>();
@@ -87,15 +99,20 @@ export async function runPriceMonitor(
 
   // For each spike, find ALL agents holding that ticker and let each respond
   for (const spike of spikes) {
-    const pendingAlerts = await db.getPendingAlerts();
-    const alert = pendingAlerts.find((a) => a.ticker === spike.ticker && !a.processed);
+    // Refetch pending alerts each iteration to avoid stale data
+    const freshAlerts = await db.getPendingAlerts();
+    const alert = freshAlerts.find((a) => a.ticker === spike.ticker && !a.processed);
     if (!alert) continue;
+
+    let allAgentsSucceeded = true;
+    let anyAgentHeld = false;
 
     for (const agentRow of agents) {
       const positions = await db.getPositions(agentRow.id);
       const holds = positions.some((p) => p.ticker === spike.ticker);
       if (!holds) continue;
 
+      anyAgentHeld = true;
       const identity = await fileStore.loadIdentity(agentRow.id);
       const params = parseAgentParams(identity);
       const config: AgentConfig = {
@@ -113,10 +130,15 @@ export async function runPriceMonitor(
         );
       } catch (e) {
         console.error(`[priceMonitor] Agent ${agentRow.id} alert response failed:`, (e as Error).message);
+        allAgentsSucceeded = false;
       }
     }
 
-    // Mark alert as processed only after ALL holding agents have responded
-    await db.markAlertProcessed(alert.id);
+    // Mark processed if all holding agents succeeded, or if no agent held the ticker
+    if (allAgentsSucceeded || !anyAgentHeld) {
+      await db.markAlertProcessed(alert.id);
+    } else {
+      console.warn(`[priceMonitor] Alert ${alert.id} (${alert.ticker}) NOT marked processed — will retry next cycle`);
+    }
   }
 }

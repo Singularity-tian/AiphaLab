@@ -11,7 +11,7 @@ import { generateStructuredWithRetry } from "./llm";
 import { type IFileStore, type TickerBelief } from "./fileStore";
 import { EmbeddingClient } from "./embeddings";
 import { TokenBucket } from "../daemon/rateLimiter";
-import { SP500_UNIVERSE } from "./persona";
+import { SP500_UNIVERSE, TICKER_STOPWORDS } from "./persona";
 
 const VALID_TICKERS = new Set(SP500_UNIVERSE);
 
@@ -66,9 +66,11 @@ export interface DayResult {
 export function parseAgentParams(identityMd: string): { decisionTemperature: number; convictionMultiplier: number } {
   const temp = identityMd.match(/Decision temperature:\s*([\d.]+)/i);
   const conv = identityMd.match(/Conviction multiplier:\s*([\d.]+)/i);
+  const rawTemp = temp ? parseFloat(temp[1]) : 0.5;
+  const rawConv = conv ? parseFloat(conv[1]) : 1.0;
   return {
-    decisionTemperature: temp ? parseFloat(temp[1]) : 0.5,
-    convictionMultiplier: conv ? parseFloat(conv[1]) : 1.0,
+    decisionTemperature: Math.max(0.1, Math.min(0.95, isNaN(rawTemp) ? 0.5 : rawTemp)),
+    convictionMultiplier: Math.max(0.3, Math.min(2.5, isNaN(rawConv) ? 1.0 : rawConv)),
   };
 }
 
@@ -134,6 +136,16 @@ export class TraderAgent {
     let tradesExecuted = 0;
 
     for (const decision of decisions) {
+      // Validate decision before execution
+      if ((decision.action === "BUY" || decision.action === "SELL") && !decision.ticker) {
+        console.warn(`[agent ${this.agentId}] Skipping ${decision.action} — no ticker specified`);
+        continue;
+      }
+      if (decision.action === "BUY" && decision.dollarAmount !== undefined && decision.dollarAmount <= 0) {
+        console.warn(`[agent ${this.agentId}] Skipping BUY ${decision.ticker} — invalid dollarAmount: ${decision.dollarAmount}`);
+        continue;
+      }
+
       if (decision.action === "BUY" && decision.ticker) {
         const maxCash = broker.cash * 0.9;
         const rawAmount = decision.dollarAmount ?? maxCash * 0.25;
@@ -168,6 +180,10 @@ export class TraderAgent {
           console.warn(`[agent ${this.agentId}] Buy ${decision.ticker} failed: ${result.error}`);
         }
       } else if (decision.action === "SELL" && decision.ticker) {
+        // Capture entry price before selling (position will be deleted)
+        const posBeforeSell = broker.positions.get(decision.ticker);
+        const entryPrice = posBeforeSell?.entryPrice ?? 0;
+
         const result = await broker.sell(
           decision.ticker,
           date,
@@ -178,15 +194,24 @@ export class TraderAgent {
         );
         if (result.success) {
           tradesExecuted++;
+          const pnl = entryPrice > 0 ? (result.price - entryPrice) / entryPrice : null;
+          const outcome = pnl !== null ? (pnl >= 0 ? "profit" : "loss") : null;
+          // Load current belief to increment win/loss counts
+          const currentBeliefs = await this.fileStore.loadBeliefs(this.agentId);
+          const currentBelief = currentBeliefs[decision.ticker];
+          const winDelta = outcome === "profit" ? 1 : 0;
+          const lossDelta = outcome === "loss" ? 1 : 0;
           await this.fileStore.updateTickerBelief(this.agentId, decision.ticker, {
             sentiment: "bearish",
             confidence: decision.conviction,
+            winCount: (currentBelief?.winCount ?? 0) + winDelta,
+            lossCount: (currentBelief?.lossCount ?? 0) + lossDelta,
             lastTrade: {
               side: "SELL",
               date,
               price: result.price,
-              outcome: null,
-              pnl: null,
+              outcome,
+              pnl: pnl !== null ? Math.round(pnl * 10000) / 10000 : null,
             },
           });
         } else {
@@ -394,7 +419,7 @@ Respond with JSON: { "action": "SELL" | "HOLD" | "SCALE", "rationale": "..." }`;
     const heldTickers = new Set(broker.positions.keys());
     const formatFactors = (s: SignalResult) => {
       const f = s.factors;
-      return `combined=${s.combined.toFixed(2)} | pe=${(f.pe ?? 0.5).toFixed(2)} pb=${(f.pb ?? 0.5).toFixed(2)} roe=${(f.roe ?? 0.5).toFixed(2)} fcf=${(f.fcf_yield ?? 0.5).toFixed(2)} div=${(f.dividend_yield ?? 0.5).toFixed(2)} eps_trend=${(f.eps_trend ?? 0.5).toFixed(2)} momentum=${(f.momentum ?? 0.5).toFixed(2)} rsi=${(f.rsi ?? 0.5).toFixed(2)} vol=${(f.volatility ?? 0.5).toFixed(2)} rvol=${(f.relative_volume ?? 0.5).toFixed(2)}`;
+      return `combined=${s.combined.toFixed(2)} conf=${s.confidence.toFixed(2)} | pe=${(f.pe ?? 0.5).toFixed(2)} pb=${(f.pb ?? 0.5).toFixed(2)} roe=${(f.roe ?? 0.5).toFixed(2)} fcf=${(f.fcf_yield ?? 0.5).toFixed(2)} div=${(f.dividend_yield ?? 0.5).toFixed(2)} eps_trend=${(f.eps_trend ?? 0.5).toFixed(2)} momentum=${(f.momentum ?? 0.5).toFixed(2)} rsi=${(f.rsi ?? 0.5).toFixed(2)} vol=${(f.volatility ?? 0.5).toFixed(2)} rvol=${(f.relative_volume ?? 0.5).toFixed(2)}`;
     };
     const topBuys = Object.entries(signals)
       .filter(([t, s]) => !heldTickers.has(t) && s.confidence > 0)
@@ -440,7 +465,7 @@ Positions: ${broker.positions.size}
 Date: ${ctx.date}
 SPY 1d: ${(ctx.spyReturn1d * 100).toFixed(2)}%
 SPY 5d: ${(ctx.spyReturn5d * 100).toFixed(2)}%
-VIX: ${ctx.vixLevel ?? "N/A"}
+VIX: ${ctx.vixLevel != null ? `${ctx.vixLevel.toFixed(1)} (${ctx.vixLevel < 15 ? "low fear" : ctx.vixLevel < 20 ? "normal" : ctx.vixLevel < 30 ? "elevated fear" : "high fear"})` : "N/A"}
 Regime: ${ctx.marketRegime}
 </market_context>
 
@@ -453,15 +478,17 @@ ${holdings}
 </today_signals>
 
 <signal_legend>
-All signal scores are 0.0-1.0:
+All signal scores are normalized to 0.0-1.0:
+- combined: equal-weighted average of all factors below
+- conf: data confidence (0=no data, 1=full history). Prefer tickers with conf ≥ 0.5
 - pe, pb: higher = cheaper vs own history (better value)
 - roe, fcf: higher = better quality management/cash generation
 - div: higher = better dividend yield
 - eps_trend: higher = earnings accelerating
-- momentum: higher = stronger 12-1 month uptrend
-- rsi: <0.30 = oversold (potential reversal), >0.70 = overbought
-- vol: higher = lower volatility (safer/more stable)
-- rvol: higher = above-average trading volume (more activity)
+- momentum: higher = stronger 12-1 month uptrend (12m minus 1m return)
+- rsi: normalized RSI/100. ~0.30 = oversold zone, ~0.50 = neutral, ~0.70 = overbought zone
+- vol: higher = lower volatility (safer/more stable). Sigmoid centered at 30% annualized
+- rvol: higher = above-average recent trading volume (more activity)
 </signal_legend>
 
 <task>
@@ -554,12 +581,12 @@ ${review.noteToSelf}
   }
 
   private _parseWatchlistFromStrategy(strategyMd: string): string[] {
-    // Extract all-caps 1-5 char words that look like tickers
+    // Extract all-caps 1-5 char words that look like tickers, filtering out English stopwords
     const matches = strategyMd.match(/\b[A-Z]{1,5}\b/g) ?? [];
     const seen = new Set<string>();
     const tickers: string[] = [];
     for (const m of matches) {
-      if (!seen.has(m) && VALID_TICKERS.has(m)) {
+      if (!seen.has(m) && VALID_TICKERS.has(m) && !TICKER_STOPWORDS.has(m)) {
         seen.add(m);
         tickers.push(m);
       }

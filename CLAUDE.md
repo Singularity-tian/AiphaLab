@@ -358,9 +358,9 @@ Flow:
 
 Current execution reality:
 
-- `SELL` is implemented
-- `HOLD` does nothing
-- `SCALE` has no execution path yet
+- `SELL` is implemented (sells full position)
+- `HOLD` does nothing (maintains position)
+- `SCALE` is implemented (adds 10% of available cash via `broker.addToPosition`)
 
 ## Agent Runtime: What the Model Actually Sees
 
@@ -375,9 +375,10 @@ Current execution reality:
 - up to 5 retrieved episodic memories
 - current cash and position count
 - SPY 1d / 5d context
+- VIX level with fear interpretation
 - market regime
-- top buy candidates from cached signals
-- current holdings with signal summaries
+- top buy candidates from cached signals (with confidence scores)
+- current holdings with signal summaries (with confidence scores)
 
 ### Inputs after hours
 
@@ -526,35 +527,32 @@ Actual daemon liveness comes from:
 
 - `daemon_heartbeat`
 
-### 4. preMarket signals live only in memory
+### 4. preMarket signals live only in memory (with fallback)
 
 The pre-market signal cache currently lives only in a module-level `_cache` in `daemon/phases/preMarket.ts`.
 
 Implications:
 
 - daemon restart loses the cache
-- `marketOpen` may run with empty signals if the same-day cache is missing
-- manual phase runs can easily bypass signal preparation
+- **however**, `marketOpen` now auto-runs `runPreMarket()` on-demand if the cache is missing or stale
+- manual phase runs can bypass signal preparation, but `marketOpen` will self-heal
 
-### 5. Identity parameters are currently mostly decorative
+### 5. Identity parameters are wired into all entry points
 
 `identity.md` contains fields like:
 
-- decision temperature
-- conviction multiplier
+- decision temperature (clamped to 0.1–0.95)
+- conviction multiplier (clamped to 0.3–2.5)
 
-The evolution engine also edits those values.
+The evolution engine edits these values, and they are now parsed via `parseAgentParams()` in all entry points:
+- daemon phases (`marketOpen`, `afterHours`, `priceMonitor`)
+- manual scripts (`run.ts`, `backfill.ts`)
 
-But the actual daemon agent config is still constructed with hard-coded defaults:
+Parameters are bounds-checked to prevent invalid values from the evolution engine.
 
-- `decisionTemperature: 0.5`
-- `convictionMultiplier: 1.0`
+### 6. `SCALE` is implemented
 
-So today, identity-level parameters are **not truly wired into runtime behavior**.
-
-### 6. `SCALE` is schema-level only
-
-The alert schema supports `SCALE`, but execution logic does not.
+The alert schema supports `SCALE`, and execution logic adds 10% of available cash to the position via `broker.addToPosition()`.
 
 ### 7. Price alerts are not modeled as per-agent work items
 

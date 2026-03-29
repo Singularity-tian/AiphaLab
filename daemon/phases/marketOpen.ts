@@ -12,7 +12,7 @@ import { type IFileStore } from "../../lib/fileStore";
 import { EmbeddingClient } from "../../lib/embeddings";
 import { TraderAgent, MarketContext, AgentConfig, parseAgentParams } from "../../lib/agent";
 import { TokenBucket } from "../rateLimiter";
-import { getSignalCache } from "./preMarket";
+import { getSignalCache, runPreMarket } from "./preMarket";
 
 async function processAgentsInPhase(
   phase: string,
@@ -48,12 +48,18 @@ export async function runMarketOpen(
   console.log(`[marketOpen] ${date} — Starting trading decisions...`);
 
   const agents = await db.getAllAgents();
-  const cache = getSignalCache();
-  const signals = cache?.date === date ? cache.signals : {};
+  let cache = getSignalCache();
 
   if (!cache || cache.date !== date) {
-    console.warn(`[marketOpen] No preMarket cache for ${date}. Signals will be empty.`);
+    console.warn(`[marketOpen] No preMarket cache for ${date}. Running on-demand signal computation...`);
+    try {
+      cache = await runPreMarket(date, db, fmp, fileStore);
+    } catch (e) {
+      console.error(`[marketOpen] On-demand preMarket failed: ${(e as Error).message}. Proceeding with empty signals.`);
+    }
   }
+
+  const signals = cache?.date === date ? cache.signals : {};
 
   let tradesTotal = 0;
 
@@ -73,20 +79,18 @@ export async function runMarketOpen(
       const { tradesExecuted } = await trader.runDecisionPhase(marketContext, signals);
       tradesTotal += tradesExecuted;
 
-      // Update agent_state so leaderboard reflects post-trade portfolio
-      if (tradesExecuted > 0) {
-        const broker = await SimulatedBroker.fromDB(agentId, db);
-        const portfolioValue = await broker.getPortfolioValue(date, fmp);
-        const prevState = await db.getAgentState(agentId);
-        await db.upsertAgentState({
-          agent_id: agentId,
-          cash: broker.cash,
-          portfolio_value: portfolioValue,
-          total_pnl: portfolioValue - config.initialCash,
-          last_run_date: date,
-          run_count: prevState?.run_count ?? 0,
-        });
-      }
+      // Always update agent_state so leaderboard reflects current portfolio values
+      const broker = await SimulatedBroker.fromDB(agentId, db);
+      const portfolioValue = await broker.getPortfolioValue(date, fmp);
+      const prevState = await db.getAgentState(agentId);
+      await db.upsertAgentState({
+        agent_id: agentId,
+        cash: broker.cash,
+        portfolio_value: portfolioValue,
+        total_pnl: portfolioValue - config.initialCash,
+        last_run_date: date,
+        run_count: prevState?.run_count ?? 0,
+      });
     } catch (e) {
       console.error(`[marketOpen] Agent ${agentId} failed:`, (e as Error).message);
     }

@@ -38,13 +38,11 @@ export class Scheduler {
   private async _tick() {
     const now = DateTime.now().setZone("America/New_York");
     const dateStr = now.toISODate()!;
-    const dayOfWeek = now.weekday % 7; // luxon: 1=Mon, 7=Sun → convert to 0=Sun
+    // Convert luxon weekday (1=Mon, 7=Sun) to JS day (0=Sun, 6=Sat)
+    const jsDay = now.weekday === 7 ? 0 : now.weekday;
 
     for (const phase of this.phases) {
       const allowedDays = phase.days ?? [1, 2, 3, 4, 5]; // Mon-Fri by default
-
-      // Convert luxon weekday (1=Mon, 7=Sun) to JS day (0=Sun, 6=Sat)
-      const jsDay = now.weekday === 7 ? 0 : now.weekday;
 
       if (!allowedDays.includes(jsDay)) continue;
       if (now.hour !== phase.hour || now.minute !== phase.minute) continue;
@@ -58,7 +56,7 @@ export class Scheduler {
       try {
         await phase.handler();
       } catch (e) {
-        console.error(`[scheduler] ${phase.name} failed:`, e);
+        console.error(`[scheduler] ${phase.name} failed:`, (e as Error).message ?? String(e));
       }
     }
   }

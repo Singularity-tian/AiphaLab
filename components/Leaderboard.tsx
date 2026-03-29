@@ -49,7 +49,7 @@ export default function Leaderboard({ data }: Props) {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              {["#", "Trader", "Return", "Today", "Trades"].map((h) => (
+              {["#", "Trader", "Portfolio", "Return", "Today", "Trades"].map((h) => (
                 <th
                   key={h}
                   style={{
@@ -106,6 +106,16 @@ export default function Leaderboard({ data }: Props) {
                     }}
                   >
                     {row.name}
+                  </td>
+                  <td
+                    style={{
+                      padding: "8px 16px",
+                      borderBottom: "1px solid #1c1c1f",
+                      fontSize: 12,
+                      color: "#a1a1aa",
+                    }}
+                  >
+                    ${row.portfolioValue.toLocaleString("en", { maximumFractionDigits: 0 })}
                   </td>
                   <td
                     style={{

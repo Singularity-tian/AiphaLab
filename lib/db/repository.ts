@@ -409,32 +409,47 @@ export class SimDB {
         ORDER BY date DESC
         LIMIT ${days}
       ),
+      running AS (
+        SELECT
+          date,
+          portfolio_value,
+          daily_return,
+          cumulative_return,
+          MAX(portfolio_value) OVER (ORDER BY date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS peak_value
+        FROM snapshots
+        ORDER BY date
+      ),
       stats AS (
         SELECT
           COUNT(*) AS day_count,
-          MAX(cumulative_return) AS max_cum_ret,
-          MIN(cumulative_return) AS min_cum_ret,
           (SELECT cumulative_return FROM snapshots ORDER BY date DESC LIMIT 1) AS latest_cum_ret,
           AVG(daily_return) AS avg_daily,
-          STDDEV(daily_return) AS stddev_daily
-        FROM snapshots
+          STDDEV(daily_return) AS stddev_daily,
+          COALESCE(MAX((peak_value - portfolio_value) / NULLIF(peak_value, 0)), 0) AS max_drawdown
+        FROM running
       ),
       trade_stats AS (
         SELECT
           COUNT(*) AS total_trades,
-          COUNT(*) FILTER (WHERE value > cost) AS wins
+          COUNT(*) FILTER (WHERE sell_price > buy_price) AS wins
         FROM (
-          SELECT t.value, p.cost_basis * t.shares AS cost
-          FROM trades t
-          LEFT JOIN positions p ON p.agent_id = t.agent_id AND p.ticker = t.ticker
-          WHERE t.agent_id = ${agentId} AND t.side = 'SELL'
-          AND t.date >= (CURRENT_DATE - ${days}::int)
+          SELECT
+            sell_t.price AS sell_price,
+            COALESCE(
+              (SELECT b.price FROM trades b
+               WHERE b.agent_id = sell_t.agent_id AND b.ticker = sell_t.ticker AND b.side = 'BUY'
+               AND b.date <= sell_t.date ORDER BY b.date DESC, b.id DESC LIMIT 1),
+              sell_t.price
+            ) AS buy_price
+          FROM trades sell_t
+          WHERE sell_t.agent_id = ${agentId} AND sell_t.side = 'SELL'
+          AND sell_t.date >= (CURRENT_DATE - ${days}::int)
         ) sub
       )
       SELECT
         s.day_count::int AS days,
         s.latest_cum_ret AS cumulative_return,
-        (s.max_cum_ret - s.min_cum_ret) AS max_drawdown,
+        s.max_drawdown AS max_drawdown,
         CASE WHEN ts.total_trades > 0 THEN ts.wins::float / ts.total_trades ELSE 0 END AS win_rate,
         ts.total_trades::int AS total_trades,
         CASE WHEN s.stddev_daily > 0 THEN (s.avg_daily / s.stddev_daily) * sqrt(252) ELSE NULL END AS sharpe_ratio

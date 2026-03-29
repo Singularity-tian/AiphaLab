@@ -73,8 +73,12 @@ export class SimulatedBroker {
   async getPrice(ticker: string, fmp: FMPClient): Promise<number | null> {
     try {
       const quote = await fmp.getQuote(ticker);
+      if (!quote?.price) {
+        console.warn(`[broker] No price for ${ticker} — quote returned null`);
+      }
       return quote?.price ?? null;
-    } catch {
+    } catch (e) {
+      console.error(`[broker] Price fetch failed for ${ticker}: ${(e as Error).message}`);
       return null;
     }
   }
@@ -286,6 +290,13 @@ export class SimulatedBroker {
       const price = quotes[ticker]?.price;
       if (!price) continue;
 
+      // Initialize trailing high if missing (first check for this position)
+      if (pos.trailingHigh <= 0) {
+        pos.trailingHigh = price;
+        continue; // Skip stop-loss check on first observation
+      }
+
+      // Update trailing high watermark
       if (price > pos.trailingHigh) {
         pos.trailingHigh = price;
       }
@@ -302,37 +313,43 @@ export class SimulatedBroker {
 
   /** Persist current positions and all pending trades to DB (async). */
   async persistToDB(db: SimDB, date: string): Promise<void> {
-    // Write all pending trades
-    for (const t of this.pendingTrades) {
-      await db.insertTrade(t);
+    try {
+      // Write all pending trades
+      for (const t of this.pendingTrades) {
+        await db.insertTrade(t);
+      }
+
+      // Upsert current positions
+      const existingRows = await db.getPositions(this.agentId);
+      const existingTickers = new Set(existingRows.map((p) => p.ticker));
+
+      for (const [ticker, pos] of this.positions) {
+        await db.upsertPosition({
+          agent_id: this.agentId,
+          ticker: pos.ticker,
+          shares: pos.shares,
+          entry_price: pos.entryPrice,
+          entry_date: pos.entryDate,
+          trailing_high: pos.trailingHigh,
+          cost_basis: pos.costBasis,
+        });
+        existingTickers.delete(ticker);
+      }
+
+      // Delete positions that were closed
+      for (const ticker of existingTickers) {
+        await db.deletePosition(this.agentId, ticker);
+      }
+
+      // Persist updated cash so subsequent fromDB() calls see post-trade balance
+      await db.updateAgentCash(this.agentId, this.cash);
+
+      // Only clear pending trades after successful DB writes
+      this.pendingTrades = [];
+    } catch (e) {
+      console.error(`[broker] Agent ${this.agentId} persistToDB failed — ${(e as Error).message}. ${this.pendingTrades.length} trades NOT cleared.`);
+      throw e;
     }
-
-    // Upsert current positions
-    const existingRows = await db.getPositions(this.agentId);
-    const existingTickers = new Set(existingRows.map((p) => p.ticker));
-
-    for (const [ticker, pos] of this.positions) {
-      await db.upsertPosition({
-        agent_id: this.agentId,
-        ticker: pos.ticker,
-        shares: pos.shares,
-        entry_price: pos.entryPrice,
-        entry_date: pos.entryDate,
-        trailing_high: pos.trailingHigh,
-        cost_basis: pos.costBasis,
-      });
-      existingTickers.delete(ticker);
-    }
-
-    // Delete positions that were closed
-    for (const ticker of existingTickers) {
-      await db.deletePosition(this.agentId, ticker);
-    }
-
-    // Persist updated cash so subsequent fromDB() calls see post-trade balance
-    await db.updateAgentCash(this.agentId, this.cash);
-
-    this.pendingTrades = [];
   }
 
   getPendingTrades(): Omit<TradeRow, "id">[] {

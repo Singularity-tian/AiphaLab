@@ -8,7 +8,7 @@ import { SimDB } from "../../lib/db/repository";
 import { FMPClient } from "../../lib/fmp";
 import { type IFileStore } from "../../lib/fileStore";
 import { computeBatchSignals, SignalResult } from "../../lib/signals";
-import { SP500_UNIVERSE } from "../../lib/persona";
+import { SP500_UNIVERSE, TICKER_STOPWORDS } from "../../lib/persona";
 
 const VALID_TICKERS = new Set(SP500_UNIVERSE);
 
@@ -42,7 +42,7 @@ export async function runPreMarket(
       // Extract ticker-like tokens (all-caps, 1-5 chars)
       const matches = strategy.match(/\b[A-Z]{1,5}\b/g) ?? [];
       for (const t of matches) {
-        if (VALID_TICKERS.has(t)) allTickers.add(t);
+        if (VALID_TICKERS.has(t) && !TICKER_STOPWORDS.has(t)) allTickers.add(t);
       }
     } catch {
       // Agent files not created yet, skip

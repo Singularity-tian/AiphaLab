@@ -44,6 +44,34 @@ export const SP500_UNIVERSE = [
   "VZ", "TMUS", "WBD", "FOX", "PARA", "CHTR", "NET", "SNOW", "DDOG", "ZS",
 ];
 
+/** Common English words that match the all-caps ticker regex but aren't tickers. */
+export const TICKER_STOPWORDS = new Set([
+  "A", "I", "AM", "AN", "AS", "AT", "BE", "BY", "DO", "GO", "IF", "IN",
+  "IS", "IT", "ME", "MY", "NO", "OF", "OK", "ON", "OR", "SO", "TO", "UP",
+  "US", "WE", "AND", "ARE", "BUT", "CAN", "DID", "FOR", "GET", "GOT",
+  "HAS", "HAD", "HER", "HIM", "HIS", "HOW", "ITS", "LET", "MAY", "NEW",
+  "NOT", "NOW", "OLD", "ONE", "OUR", "OUT", "OWN", "RUN", "SAY", "SHE",
+  "THE", "TOO", "TRY", "USE", "WAY", "WHO", "WHY", "WIN", "YET", "YOU",
+  "ALL", "ANY", "BIG", "DAY", "END", "FAR", "FEW", "HIT", "LOW", "OFF",
+  "SET", "TOP", "TWO", "PER", "PUT", "ALSO", "BACK", "BEEN", "BEST",
+  "BOTH", "CALL", "CASE", "COME", "EACH", "EVEN", "FACT", "FIND", "FORM",
+  "FROM", "FULL", "GAVE", "GOOD", "HALF", "HAVE", "HEAD", "HERE", "HIGH",
+  "HOLD", "HOME", "JUST", "KEEP", "KIND", "KNOW", "LAST", "LEFT", "LIKE",
+  "LINE", "LIST", "LONG", "LOOK", "MADE", "MAKE", "MANY", "MORE", "MOST",
+  "MUCH", "MUST", "NAME", "NEAR", "NEED", "NEXT", "ONLY", "OPEN", "OVER",
+  "PART", "PLAN", "PLAY", "RISK", "RULE", "SAME", "SELL", "SHOW", "SIDE",
+  "SOME", "SUCH", "SURE", "TAKE", "TELL", "THAN", "THAT", "THEM", "THEN",
+  "THEY", "THIS", "TIME", "TURN", "USED", "VERY", "WANT", "WELL", "WERE",
+  "WHAT", "WHEN", "WILL", "WITH", "WORD", "WORK", "YEAR", "YOUR",
+  "ABOUT", "AFTER", "BELOW", "COULD", "DAILY", "EVERY", "FIRST", "GIVEN",
+  "GOING", "GREAT", "NEVER", "OTHER", "SHALL", "SINCE", "STILL", "THEIR",
+  "THERE", "THESE", "THINK", "THOSE", "THREE", "UNDER", "UNTIL", "USING",
+  "VALUE", "WHERE", "WHICH", "WHILE", "WORLD", "WOULD", "ABOVE", "BEING",
+  "BASED", "ENTRY", "EXIT", "FOCUS", "LARGE", "LIMIT", "LOWER", "AVOID",
+  "NOTE", "PRICE", "QUICK", "SHORT", "SMALL", "START", "STOCK",
+  "STOP", "TRADE", "TREND", "UPPER",
+]);
+
 /** Generate a deterministic 30-ticker watchlist seeded by agent index. */
 export function generateWatchlist(agentIndex: number): string[] {
   const shuffled = [...SP500_UNIVERSE];

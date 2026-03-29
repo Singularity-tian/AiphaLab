@@ -4,6 +4,7 @@
  * LLM calls: 0. Writes: positions, beliefs.
  */
 
+import chunk from "lodash/chunk";
 import { SimDB } from "../../lib/db/repository";
 import { FMPClient } from "../../lib/fmp";
 import { type IFileStore } from "../../lib/fileStore";
@@ -22,29 +23,31 @@ export async function runMidday(
   const agents = await db.getAllAgents();
   let stopsFired = 0;
 
-  for (const agentRow of agents) {
-    try {
-      const broker = await SimulatedBroker.fromDB(agentRow.id, db);
-      if (broker.positions.size === 0) continue;
+  for (const batch of chunk(agents, 5)) {
+    await Promise.all(batch.map(async (agentRow) => {
+      try {
+        const broker = await SimulatedBroker.fromDB(agentRow.id, db);
+        if (broker.positions.size === 0) return;
 
-      const results = await broker.checkStopLosses(date, fmp, 0.2, "midday");
-      const sold = results.filter((r) => r.success);
+        const results = await broker.checkStopLosses(date, fmp, 0.2, "midday");
+        const sold = results.filter((r) => r.success);
 
-      if (sold.length > 0) {
-        await broker.persistToDB(db, date);
-        stopsFired += sold.length;
+        if (sold.length > 0) {
+          await broker.persistToDB(db, date);
+          stopsFired += sold.length;
 
-        // Update beliefs for sold positions
-        for (const r of sold) {
-          await fileStore.updateTickerBelief(agentRow.id, r.ticker, {
-            sentiment: "bearish",
-            notes: `Stop-loss triggered at midday: ${r.price.toFixed(2)}`,
-          });
+          // Update beliefs for sold positions
+          for (const r of sold) {
+            await fileStore.updateTickerBelief(agentRow.id, r.ticker, {
+              sentiment: "bearish",
+              notes: `Stop-loss triggered at midday: ${r.price.toFixed(2)}`,
+            });
+          }
         }
+      } catch (e) {
+        console.error(`[midday] Agent ${agentRow.id} failed:`, (e as Error).message);
       }
-    } catch (e) {
-      console.error(`[midday] Agent ${agentRow.id} failed:`, (e as Error).message);
-    }
+    }));
   }
 
   console.log(`[midday] Done — ${stopsFired} stop-losses fired.`);

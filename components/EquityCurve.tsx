@@ -42,7 +42,11 @@ const CustomTooltip = ({ active, payload, label }: any) => {
       </div>
       <div style={{ color: isPos ? "#22c55e" : "#ef4444" }}>
         {isPos ? "+" : ""}
-        {(d.cumulative_return * 100).toFixed(2)}%
+        {(d.cumulative_return * 100).toFixed(2)}% total
+      </div>
+      <div style={{ color: d.daily_return >= 0 ? "#22c55e" : "#ef4444", fontSize: 11, marginTop: 2 }}>
+        {d.daily_return >= 0 ? "+" : ""}
+        {(d.daily_return * 100).toFixed(2)}% today
       </div>
     </div>
   );

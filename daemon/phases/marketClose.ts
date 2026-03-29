@@ -22,7 +22,10 @@ export async function runMarketClose(
     try {
       // Skip if snapshot already written today
       const existing = await db.hasSnapshot(agentRow.id, date);
-      if (existing) { processed++; continue; }
+      if (existing) {
+        processed++;
+        continue;
+      }
 
       const broker = await SimulatedBroker.fromDB(agentRow.id, db);
       const portfolioValue = await broker.getPortfolioValue(date, fmp);

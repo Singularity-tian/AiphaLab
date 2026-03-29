@@ -42,15 +42,29 @@ export interface FinancialRatios {
   freeCashFlowPerShare: number | null;
 }
 
-// ---- Simple in-memory cache for the process lifetime ----
+// ---- Simple in-memory cache with in-flight deduplication ----
 const _cache = new Map<string, { data: unknown; ts: number }>();
-function cached<T>(key: string, ttlMs: number, fetch: () => Promise<T>): Promise<T> {
+const _inflight = new Map<string, Promise<unknown>>();
+
+function cached<T>(key: string, ttlMs: number, fetchFn: () => Promise<T>): Promise<T> {
   const hit = _cache.get(key);
   if (hit && Date.now() - hit.ts < ttlMs) return Promise.resolve(hit.data as T);
-  return fetch().then((data) => {
+
+  // Deduplicate concurrent fetches for the same key
+  const existing = _inflight.get(key);
+  if (existing) return existing as Promise<T>;
+
+  const promise = fetchFn().then((data) => {
     _cache.set(key, { data, ts: Date.now() });
+    _inflight.delete(key);
     return data;
+  }).catch((e) => {
+    _inflight.delete(key);
+    throw e;
   });
+
+  _inflight.set(key, promise);
+  return promise;
 }
 
 // ---- FMPClient ----
@@ -82,9 +96,17 @@ export class FMPClient {
       tickers.map((t) => this.getQuote(t))
     );
     const out: Record<string, FMPQuote> = {};
+    const failed: string[] = [];
     for (let i = 0; i < tickers.length; i++) {
       const r = results[i];
-      if (r.status === "fulfilled" && r.value) out[tickers[i]] = r.value;
+      if (r.status === "fulfilled" && r.value) {
+        out[tickers[i]] = r.value;
+      } else {
+        failed.push(tickers[i]);
+      }
+    }
+    if (failed.length > 0) {
+      console.warn(`[fmp] Batch quotes: ${failed.length}/${tickers.length} failed — ${failed.join(", ")}`);
     }
     return out;
   }
@@ -98,14 +120,24 @@ export class FMPClient {
       if (!res.ok) throw new Error(`FMP OHLC error: ${res.status}`);
       const data = await res.json();
       // FMP returns { symbol, historical: [...] }
-      const historical: OHLCV[] = (data.historical ?? data ?? []).map((d: any) => ({
-        date: d.date,
-        open: d.open,
-        high: d.high,
-        low: d.low,
-        close: d.close,
-        volume: d.volume,
-      }));
+      const raw = data.historical ?? data ?? [];
+      const historical: OHLCV[] = [];
+      for (const d of raw) {
+        if (!d.date || typeof d.close !== "number" || d.close <= 0) {
+          continue; // Skip invalid bars
+        }
+        historical.push({
+          date: d.date,
+          open: typeof d.open === "number" ? d.open : d.close,
+          high: typeof d.high === "number" ? d.high : d.close,
+          low: typeof d.low === "number" ? d.low : d.close,
+          close: d.close,
+          volume: typeof d.volume === "number" ? d.volume : 0,
+        });
+      }
+      if (historical.length === 0 && raw.length > 0) {
+        console.warn(`[fmp] ${ticker}: all ${raw.length} OHLCV bars failed validation`);
+      }
       return historical.sort((a, b) => a.date.localeCompare(b.date));
     });
   }
@@ -138,14 +170,23 @@ export class FMPClient {
    * SPY quote date to the target date.
    */
   async isMarketOpen(date: string): Promise<boolean> {
-    try {
-      const quote = await this.getQuote("SPY");
-      if (!quote) return false;
-      // If we can get a non-zero price, market data exists for this date
-      return quote.price > 0;
-    } catch {
-      return false;
+    // Retry once on failure to distinguish network errors from market closed
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const quote = await this.getQuote("SPY");
+        if (!quote) return false;
+        return quote.price > 0;
+      } catch (e) {
+        if (attempt === 0) {
+          console.warn(`[fmp] isMarketOpen check failed (attempt 1), retrying: ${(e as Error).message}`);
+          await new Promise((r) => setTimeout(r, 2000));
+        } else {
+          console.error(`[fmp] isMarketOpen check failed after retry: ${(e as Error).message}`);
+          return false;
+        }
+      }
     }
+    return false;
   }
 
   /** Get SPY OHLC for context (last 10 trading days). */

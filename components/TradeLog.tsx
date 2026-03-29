@@ -13,6 +13,10 @@ interface Trade {
   commission: number;
   reason: string;
   llm_rationale: string | null;
+  signal_score: number | null;
+  phase: string;
+  entryPrice: number | null;
+  tradePnl: number | null;
 }
 
 interface Props {
@@ -53,7 +57,7 @@ export default function TradeLog({ trades }: Props) {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              {["Date", "Ticker", "Side", "Shares", "Price", "Value", "Reason"].map((h) => (
+              {["Date", "Ticker", "Side", "Shares", "Price", "Value", "P/L", "Signal", "Phase", "Reason"].map((h) => (
                 <th
                   key={h}
                   style={{
@@ -104,6 +108,37 @@ export default function TradeLog({ trades }: Props) {
                   <td
                     style={{
                       ...tdStyle,
+                      color: t.tradePnl != null
+                        ? t.tradePnl >= 0 ? "#22c55e" : "#ef4444"
+                        : "#3f3f46",
+                      fontWeight: t.tradePnl != null ? 500 : 400,
+                    }}
+                  >
+                    {t.side === "SELL" && t.tradePnl != null
+                      ? `${t.tradePnl >= 0 ? "+" : ""}${(t.tradePnl * 100).toFixed(1)}%`
+                      : "—"}
+                  </td>
+                  <td
+                    style={{
+                      ...tdStyle,
+                      color: t.signal_score == null
+                        ? "#3f3f46"
+                        : t.signal_score >= 0.7
+                        ? "#22c55e"
+                        : t.signal_score >= 0.4
+                        ? "#f59e0b"
+                        : "#ef4444",
+                      fontWeight: 500,
+                    }}
+                  >
+                    {t.signal_score != null ? t.signal_score.toFixed(2) : "—"}
+                  </td>
+                  <td style={{ ...tdStyle, fontSize: 10, color: "#52525b" }}>
+                    {t.phase}
+                  </td>
+                  <td
+                    style={{
+                      ...tdStyle,
                       color:
                         t.reason === "STOP_LOSS"
                           ? "#ef4444"
@@ -124,7 +159,7 @@ export default function TradeLog({ trades }: Props) {
                 {expanded === t.id && t.llm_rationale && (
                   <tr key={`${t.id}-rationale`}>
                     <td
-                      colSpan={7}
+                      colSpan={10}
                       style={{
                         padding: "8px 16px 12px",
                         background: "#1e1e22",
@@ -143,7 +178,7 @@ export default function TradeLog({ trades }: Props) {
             {trades.length === 0 && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={10}
                   style={{ padding: "24px 16px", textAlign: "center", color: "#71717a", fontSize: 12 }}
                 >
                   No trades yet
