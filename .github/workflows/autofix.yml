@@ -67,42 +67,34 @@ jobs:
       - name: Extract errors
         run: node scripts/autofix/extract-errors.mjs
 
-      # ── 6. Build Claude prompt ──────────────────────────────────────
+      # ── 6. Build Codex prompt ───────────────────────────────────────
       - name: Build prompt
         run: node scripts/autofix/build-prompt.mjs
 
-      # ── 7. Early exit if no errors ──────────────────────────────────
-      - name: Check for actionable errors
+      # ── 7. Stage prompt file inside repo for codex-action ──────────
+      - name: Stage prompt file
         id: check
         run: |
           if [ ! -s /tmp/autofix-prompt.md ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "No actionable errors found. Skipping Claude Code."
+            echo "No actionable errors found. Skipping Codex."
           else
+            mkdir -p .autofix
+            cp /tmp/autofix-prompt.md .autofix/prompt.md
             echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "Actionable errors found — invoking Claude Code."
+            echo "Actionable errors found — invoking Codex."
           fi
 
-      # ── 8. Claude Code auto-fix ─────────────────────────────────────
-      - name: Read prompt file
-        id: read-prompt
+      # ── 8. Codex auto-fix (Azure OpenAI) ────────────────────────────
+      - name: Codex AutoFix
         if: steps.check.outputs.skip != 'true'
-        run: |
-          DELIM="AUTOFIX_PROMPT_$(openssl rand -hex 4)"
-          echo "PROMPT<<${DELIM}" >> "$GITHUB_OUTPUT"
-          cat /tmp/autofix-prompt.md >> "$GITHUB_OUTPUT"
-          echo "${DELIM}" >> "$GITHUB_OUTPUT"
-
-      - name: Claude Code AutoFix
-        if: steps.check.outputs.skip != 'true'
-        uses: anthropics/claude-code-action@v1
+        uses: openai/codex-action@v1
         with:
-          use_foundry: "true"
-          prompt: ${{ steps.read-prompt.outputs.PROMPT }}
-          claude_args: '--max-turns 30 --allowedTools "Bash(pnpm typecheck)" "Bash(pnpm build)" Read Write Edit Glob Grep'
-        env:
-          ANTHROPIC_FOUNDRY_API_KEY: ${{ secrets.ANTHROPIC_FOUNDRY_API_KEY }}
-          ANTHROPIC_FOUNDRY_BASE_URL: ${{ secrets.ANTHROPIC_FOUNDRY_BASE_URL }}
+          openai-api-key: ${{ secrets.AZURE_API_KEY }}
+          responses-api-endpoint: ${{ secrets.AZURE_BASE_URL }}/responses
+          prompt-file: .autofix/prompt.md
+          sandbox: workspace-write
+          model: gpt-5.4
 
       # ── 9. Commit & open PR if Claude made changes ─────────────────
       - name: Create PR with fixes
@@ -112,6 +104,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           LOOKBACK: ${{ inputs.lookback || '24h' }}
         run: |
+          # Drop staged prompt scratch file before diffing for real changes
+          rm -rf .autofix
           if git diff --quiet; then
             echo "pr_created=false" >> "$GITHUB_OUTPUT"
             echo "No file changes detected — nothing to commit."
@@ -168,5 +162,5 @@ jobs:
             echo "- **Actionable errors**: 0" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          echo "- **Claude Code ran**: ${{ steps.check.outputs.skip != 'true' && 'yes' || 'no' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Codex ran**: ${{ steps.check.outputs.skip != 'true' && 'yes' || 'no' }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- **PR created**: ${{ steps.create-pr.outputs.pr_created || 'no' }}" >> "$GITHUB_STEP_SUMMARY"
