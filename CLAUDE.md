@@ -67,8 +67,8 @@ Copy `.env.local.example` to `.env.local`:
 |----------|----------|---------|
 | `DATABASE_URL` | yes | Neon Postgres connection string |
 | `FMP_API_KEY` | yes | Financial Modeling Prep market and ratio data |
-| `ANTHROPIC_FOUNDRY_API_KEY` | yes | Azure Foundry API key |
-| `ANTHROPIC_FOUNDRY_BASE_URL` | yes | Azure Foundry Anthropic base URL |
+| `AZURE_API_KEY` | yes | Azure OpenAI API key |
+| `AZURE_BASE_URL` | yes | Azure OpenAI base URL, e.g. `https://<resource>.services.ai.azure.com/openai/v1` |
 | `OPENAI_API_KEY` | no | Embeddings; if absent, the app falls back to zero vectors |
 | `FILESTORE_BACKEND=pg` | strongly recommended in prod | Store soul docs in `agent_docs` instead of local disk |
 
@@ -607,7 +607,7 @@ The app still runs, but memory retrieval is close to semantically meaningless.
 
 | Service | Command | Env vars needed |
 |---------|---------|----------------|
-| Vercel (Next.js) | `pnpm build` auto | `DATABASE_URL`, `FILESTORE_BACKEND=pg`, `ANTHROPIC_FOUNDRY_API_KEY`, `ANTHROPIC_FOUNDRY_BASE_URL` |
+| Vercel (Next.js) | `pnpm build` auto | `DATABASE_URL`, `FILESTORE_BACKEND=pg`, `AZURE_API_KEY`, `AZURE_BASE_URL` |
 | Railway (daemon) | `pnpm daemon` | all of the above plus `FMP_API_KEY` |
 
 Run migrations before first deploy:

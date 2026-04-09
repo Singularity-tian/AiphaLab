@@ -79,7 +79,7 @@ ${errorSection}
 
 3. **Preserve existing patterns**:
    - Use \`pnpm\` (not npm)
-   - LLM calls go through \`lib/llm.ts\` (\`@anthropic-ai/foundry-sdk\`)
+   - LLM calls go through \`lib/llm.ts\` (Azure OpenAI GPT-5.4 via \`openai\` SDK)
    - Rate limiting via \`llmBucket.waitForToken()\` and \`fmpBucket\`
    - Database access via \`SimDB\` in \`lib/db/repository.ts\`
    - File storage via \`getFileStore()\` in \`lib/fileStore.ts\`

@@ -63,7 +63,7 @@ pnpm daemon -- --phase marketOpen --date 2025-01-06
 
 ## Tech stack
 
-- **Claude** (`claude-sonnet-4-6`) — trading decisions, journals, strategy evolution
+- **Azure OpenAI** (`gpt-5.4`) — trading decisions, journals, strategy evolution
 - **Neon Postgres** + **pgvector** — data store + episodic memory
 - **Next.js 16** — read-only dashboard
 - **Financial Modeling Prep** — market data

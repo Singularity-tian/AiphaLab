@@ -1,39 +1,41 @@
-import { AnthropicFoundry } from "@anthropic-ai/foundry-sdk";
+import OpenAI from "openai";
 import { z } from "zod";
 
-let _client: AnthropicFoundry | null = null;
+let _client: OpenAI | null = null;
 
-function getClient(): AnthropicFoundry {
+function getClient(): OpenAI {
   if (!_client) {
-    _client = new AnthropicFoundry({
-      apiKey: process.env.ANTHROPIC_FOUNDRY_API_KEY,
-      baseURL: process.env.ANTHROPIC_FOUNDRY_BASE_URL!,
+    _client = new OpenAI({
+      apiKey: process.env.AZURE_API_KEY,
+      baseURL: process.env.AZURE_BASE_URL!,
     });
   }
   return _client;
 }
 
-const DEFAULT_MODEL = "claude-sonnet-4-6";
+const DEFAULT_MODEL = "gpt-5.4";
 
 /** Generate a free-form text response. */
 export async function generate(
   prompt: string,
   systemPrompt = "",
-  temperature = 0.7,
+  _temperature = 0.7,
   model = DEFAULT_MODEL
 ): Promise<string> {
-  const msg = await getClient().messages.create({
+  const messages: { role: "system" | "user"; content: string }[] = [];
+  if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+  messages.push({ role: "user", content: prompt });
+
+  const resp = await getClient().chat.completions.create({
     model,
-    max_tokens: 1024,
-    temperature,
-    system: systemPrompt || undefined,
-    messages: [{ role: "user", content: prompt }],
+    max_completion_tokens: 1024,
+    messages,
   });
-  const block = msg.content[0];
-  if (!block || block.type !== "text") {
-    throw new Error(`Unexpected LLM response: ${block?.type ?? "empty content"}`);
+  const text = resp.choices[0]?.message?.content;
+  if (!text) {
+    throw new Error("Unexpected LLM response: empty content");
   }
-  return block.text;
+  return text;
 }
 
 /**
@@ -43,26 +45,29 @@ export async function generate(
 export async function generateStructured<T>(
   prompt: string,
   schema: z.ZodType<T>,
-  temperature = 0.1,
+  _temperature = 0.1,
   model = DEFAULT_MODEL,
   systemPrompt = ""
 ): Promise<T> {
   const jsonInstruction =
     "\n\nRespond with ONLY valid JSON that matches the requested schema. No markdown, no explanation.";
 
-  const msg = await getClient().messages.create({
+  const resp = await getClient().chat.completions.create({
     model,
-    max_tokens: 2048,
-    temperature,
-    system: (systemPrompt || "You are a precise JSON-generating assistant.") + jsonInstruction,
-    messages: [{ role: "user", content: prompt }],
+    max_completion_tokens: 2048,
+    messages: [
+      {
+        role: "system",
+        content: (systemPrompt || "You are a precise JSON-generating assistant.") + jsonInstruction,
+      },
+      { role: "user", content: prompt },
+    ],
   });
 
-  const block = msg.content[0];
-  if (!block || block.type !== "text") {
-    throw new Error(`Unexpected LLM response for structured generation: ${block?.type ?? "empty content"}`);
+  const raw = resp.choices[0]?.message?.content;
+  if (!raw) {
+    throw new Error("Unexpected LLM response for structured generation: empty content");
   }
-  const raw = block.text;
 
   const parsed = extractJson(raw);
   return schema.parse(parsed);

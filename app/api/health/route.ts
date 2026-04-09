@@ -17,10 +17,10 @@ export async function GET() {
 
   // Environment variables
   checks.env = {
-    ok: !!(process.env.DATABASE_URL && process.env.ANTHROPIC_FOUNDRY_API_KEY),
+    ok: !!(process.env.DATABASE_URL && process.env.AZURE_API_KEY),
     detail: [
       process.env.DATABASE_URL ? "DB" : "!DB",
-      process.env.ANTHROPIC_FOUNDRY_API_KEY ? "LLM" : "!LLM",
+      process.env.AZURE_API_KEY ? "LLM" : "!LLM",
       process.env.FMP_API_KEY ? "FMP" : "!FMP",
       process.env.OPENAI_API_KEY ? "EMB" : "!EMB",
       process.env.FILESTORE_BACKEND === "pg" ? "PG_FS" : "LOCAL_FS",
