@@ -93,7 +93,7 @@ export function buildSynthesisPrompt(
     .map(([key, text]) => `## ${key.toUpperCase()} ANALYST SAID:\n${text}`)
     .join("\n\n");
   const gaps = failedLenses.length
-    ? `\nNote: the following analyses were unavailable for this run and must be acknowledged in the relevant report sections: ${failedLenses.map((k) => `${k} lens unavailable`).join("; ")}.`
+    ? `\n\nNote: the following analyses were unavailable for this run and must be acknowledged in the relevant report sections: ${failedLenses.map((k) => `${k} lens unavailable`).join("; ")}.`
     : "";
 
   return `You are the lead editor of a research panel. Four specialist analyses of ${ticker} are below. Merge them into ONE markdown research report for a beginner investor.${gaps}
