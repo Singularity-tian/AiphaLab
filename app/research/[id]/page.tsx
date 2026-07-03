@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { SimDB } from "@/lib/db/repository";
 import { presentStatus, LENSES } from "@/lib/research/lenses";
+import { RetryResearchButton } from "@/components/RetryResearchButton";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,7 @@ export default async function ResearchReportPage({ params }: { params: Promise<{
       {status === "failed" && (
         <div style={{ background: "#111113", border: "1px solid #ef4444", borderRadius: 8, padding: 32, color: "#ef4444", fontSize: 13 }}>
           Generation failed: {error ?? "unknown error"}
+          <RetryResearchButton ticker={row.ticker} />
         </div>
       )}
 

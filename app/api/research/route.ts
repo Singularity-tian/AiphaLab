@@ -13,8 +13,10 @@ const CreateSchema = z.object({
   ticker: z.string().regex(/^[A-Za-z0-9.\-]{1,10}$/),
 });
 
-// Global fixed-window cap: reports cost ~5-6 LLM calls each. Deliberately
-// global (spend guard), unlike /api/stock's per-IP limiter (abuse guard).
+// Fixed-window cap: reports cost ~5-6 LLM calls each. Deliberately
+// global per instance (spend guard), unlike /api/stock's per-IP limiter (abuse guard).
+// Note: this is per-process — on serverless each warm instance gets its own window;
+// dev-mode reloads reset it.
 const REPORT_LIMIT = 5;
 const WINDOW_MS = 60 * 60 * 1000;
 let _windowStart = 0;
@@ -73,7 +75,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   const ticker = req.nextUrl.searchParams.get("ticker")?.toUpperCase() || undefined;
-  const limit = Math.min(Number(req.nextUrl.searchParams.get("limit")) || 50, 200);
+  const limit = Math.min(Math.max(1, Number(req.nextUrl.searchParams.get("limit")) || 50), 200);
   try {
     const reports = await db.listResearchReports(ticker, limit);
     return NextResponse.json({

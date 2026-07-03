@@ -10,6 +10,7 @@ export function DeepResearchButton({ ticker }: { ticker: string }) {
   const [error, setError] = useState<string | null>(null);
   const [lastReport, setLastReport] = useState<{ id: number; created_at: string } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollCountRef = useRef(0);
 
   // Reset per ticker and look up the most recent existing report.
   useEffect(() => {
@@ -49,7 +50,15 @@ export function DeepResearchButton({ ticker }: { ticker: string }) {
       }
       setReportId(json.id);
       setPhase("running");
+      pollCountRef.current = 0;
       pollRef.current = setInterval(async () => {
+        pollCountRef.current += 1;
+        if (pollCountRef.current > 300) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          setError("Timed out — check the research library");
+          setPhase("failed");
+          return;
+        }
         try {
           const r = await fetch(`/api/research/${json.id}`);
           const row = await r.json();
