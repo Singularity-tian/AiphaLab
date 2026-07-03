@@ -16,11 +16,17 @@ export function NewResearchForm() {
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
+  const mountedRef = useRef(true);
   const router = useRouter();
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      mountedRef.current = false;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
     };
   }, []);
 
@@ -43,13 +49,19 @@ export function NewResearchForm() {
         setPhase("failed");
         return;
       }
+      // Component may have unmounted while the POST was in flight — starting
+      // the interval then would leak an uncleanable 15-minute polling loop.
+      if (!mountedRef.current) return;
       setPhase("running");
       router.refresh(); // surface the new running row in the list below
       pollCountRef.current = 0;
       pollRef.current = setInterval(async () => {
         pollCountRef.current++;
         if (pollCountRef.current > 300) {
-          if (pollRef.current) clearInterval(pollRef.current);
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
           setError("Timed out — check the list below");
           setPhase("failed");
           return;
@@ -58,10 +70,16 @@ export function NewResearchForm() {
           const r = await fetch(`/api/research/${json.id}`);
           const row = await r.json();
           if (row.status === "complete") {
-            if (pollRef.current) clearInterval(pollRef.current);
+            if (pollRef.current) {
+              clearInterval(pollRef.current);
+              pollRef.current = null;
+            }
             router.push(`/research/${json.id}`);
           } else if (row.status === "failed") {
-            if (pollRef.current) clearInterval(pollRef.current);
+            if (pollRef.current) {
+              clearInterval(pollRef.current);
+              pollRef.current = null;
+            }
             setError(row.error ?? "Generation failed");
             setPhase("failed");
             router.refresh();

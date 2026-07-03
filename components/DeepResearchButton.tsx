@@ -11,9 +11,11 @@ export function DeepResearchButton({ ticker }: { ticker: string }) {
   const [lastReport, setLastReport] = useState<{ id: number; created_at: string } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
+  const activeRef = useRef(true);
 
   // Reset per ticker and look up the most recent existing report.
   useEffect(() => {
+    activeRef.current = true;
     setPhase("idle");
     setReportId(null);
     setError(null);
@@ -29,7 +31,11 @@ export function DeepResearchButton({ ticker }: { ticker: string }) {
       .catch(() => {});
     return () => {
       cancelled = true;
-      if (pollRef.current) clearInterval(pollRef.current);
+      activeRef.current = false;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
     };
   }, [ticker]);
 
@@ -48,13 +54,19 @@ export function DeepResearchButton({ ticker }: { ticker: string }) {
         setPhase("failed");
         return;
       }
+      // Ticker may have changed or component unmounted while the POST was in
+      // flight — starting the interval then would leak an uncleanable poll loop.
+      if (!activeRef.current) return;
       setReportId(json.id);
       setPhase("running");
       pollCountRef.current = 0;
       pollRef.current = setInterval(async () => {
         pollCountRef.current += 1;
         if (pollCountRef.current > 300) {
-          if (pollRef.current) clearInterval(pollRef.current);
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
           setError("Timed out — check the research library");
           setPhase("failed");
           return;
@@ -63,10 +75,16 @@ export function DeepResearchButton({ ticker }: { ticker: string }) {
           const r = await fetch(`/api/research/${json.id}`);
           const row = await r.json();
           if (row.status === "complete") {
-            if (pollRef.current) clearInterval(pollRef.current);
+            if (pollRef.current) {
+              clearInterval(pollRef.current);
+              pollRef.current = null;
+            }
             setPhase("done");
           } else if (row.status === "failed") {
-            if (pollRef.current) clearInterval(pollRef.current);
+            if (pollRef.current) {
+              clearInterval(pollRef.current);
+              pollRef.current = null;
+            }
             setError(row.error ?? "Generation failed");
             setPhase("failed");
           }
