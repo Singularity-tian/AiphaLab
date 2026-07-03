@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { SimDB } from "@/lib/db/repository";
 import { presentStatus } from "@/lib/research/lenses";
+import { NewResearchForm } from "@/components/NewResearchForm";
 
 export const dynamic = "force-dynamic";
 
@@ -24,9 +25,11 @@ export default async function ResearchLibraryPage() {
         <p style={{ color: "#71717a", fontSize: 13 }}>{reports.length} reports</p>
       </header>
 
+      <NewResearchForm />
+
       {reports.length === 0 ? (
         <div style={{ background: "#111113", border: "1px solid #27272a", borderRadius: 8, padding: 48, textAlign: "center", color: "#71717a", fontSize: 13 }}>
-          No reports yet. Generate one from the stock analyzer on the dashboard.
+          No reports yet. Enter a ticker above to generate your first one.
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
