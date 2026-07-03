@@ -25,16 +25,25 @@ function bucketedGenerate(bucket: TokenBucket): GenerateFn {
   };
 }
 
+// Deliberate concurrency choice: drain up to this many queued reports per
+// tick, processed SEQUENTIALLY (one panel at a time) so concurrent pipelines
+// never compete for llmBucket tokens. The daemon's poll guard skips ticks
+// while a batch is still running, so a long batch simply delays the next poll.
+const RESEARCH_WORKER_BATCH = 3;
+
 export async function runResearchWorker(db: SimDB, llmBucket: TokenBucket): Promise<void> {
-  const pending = await db.listUnprocessedResearchReports(3);
+  const pending = await db.listUnprocessedResearchReports(RESEARCH_WORKER_BATCH);
   for (const row of pending) {
     if (inFlight.has(row.id)) continue;
     inFlight.add(row.id);
     console.log(`[research] picking up report ${row.id} (${row.ticker})`);
-    // Not awaited: one slow report must not block the poll loop.
-    // runResearchReport never throws — it always resolves the row's status.
-    runResearchReport(db, row.id, row.ticker, bucketedGenerate(llmBucket)).finally(() =>
-      inFlight.delete(row.id)
-    );
+    try {
+      // runResearchReport never throws — it always resolves the row's status.
+      // The inFlight set stays as belt-and-braces should this loop ever go
+      // concurrent again; .finally-style cleanup lives in the finally below.
+      await runResearchReport(db, row.id, row.ticker, bucketedGenerate(llmBucket));
+    } finally {
+      inFlight.delete(row.id);
+    }
   }
 }

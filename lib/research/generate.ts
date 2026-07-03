@@ -1,6 +1,5 @@
 import { getStockBundle } from "@/lib/stockData";
 import { getFmp, type FundamentalsTTM } from "@/lib/fmp";
-import { generate } from "@/lib/llm";
 import type { SimDB } from "@/lib/db/repository";
 import {
   LENSES,
@@ -33,7 +32,10 @@ export async function runResearchReport(
   db: SimDB,
   reportId: number,
   ticker: string,
-  generateFn: GenerateFn = generate
+  // No default on purpose: production callers must pass an llmBucket-wrapped
+  // GenerateFn (see daemon/researchWorker.ts); tests pass stubs. A raw
+  // `generate` default would silently bypass daemon rate limiting.
+  generateFn: GenerateFn
 ): Promise<void> {
   try {
     const base = await getStockBundle(ticker);
