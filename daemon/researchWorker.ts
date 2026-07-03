@@ -32,7 +32,9 @@ function bucketedGenerate(bucket: TokenBucket): GenerateFn {
 const RESEARCH_WORKER_BATCH = 3;
 
 export async function runResearchWorker(db: SimDB, llmBucket: TokenBucket): Promise<void> {
-  const pending = await db.listUnprocessedResearchReports(RESEARCH_WORKER_BATCH);
+  // Atomic claim: exactly one daemon instance wins each report, even during
+  // rolling-deploy overlap when two instances poll the same queue.
+  const pending = await db.claimResearchReports(RESEARCH_WORKER_BATCH);
   for (const row of pending) {
     if (inFlight.has(row.id)) continue;
     inFlight.add(row.id);

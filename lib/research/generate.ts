@@ -62,16 +62,23 @@ export async function runResearchReport(
     );
     const lensOutputs: Record<string, string> = {};
     const failedLenses: string[] = [];
+    let firstLensError: string | null = null;
     LENSES.forEach((l, i) => {
       const r = lensResults[i];
       if (r.status === "fulfilled") lensOutputs[l.key] = r.value;
       else {
         failedLenses.push(l.key);
+        if (!firstLensError) firstLensError = String(r.reason);
         console.error(`[research] lens ${l.key} failed for ${ticker}: ${String(r.reason)}`);
       }
     });
     if (Object.keys(lensOutputs).length === 0) {
-      await db.failResearchReport(reportId, "All research lenses failed");
+      // Surface the underlying cause — a bare "all lenses failed" hides
+      // whether it was auth, rate limits, or a killed deploy instance.
+      await db.failResearchReport(
+        reportId,
+        `All research lenses failed — ${String(firstLensError).slice(0, 300)}`
+      );
       return;
     }
 

@@ -580,15 +580,26 @@ export class SimDB {
   }
 
   /**
-   * Queued rows awaiting the daemon's research worker: still 'running' with
-   * neither output nor error. Includes orphans from a prior daemon crash, so
-   * a restart resumes them.
+   * Atomically claim queued rows for the daemon's research worker. During a
+   * rolling deploy two daemon instances poll concurrently; FOR UPDATE SKIP
+   * LOCKED + the claimed_at marker guarantee each report is claimed by exactly
+   * one instance (observed in prod: double pickup caused status flapping and
+   * spurious "all lenses failed" rows). Claims older than 10 minutes are
+   * reclaimable, so a crashed or shut-down daemon's reports get retried.
    */
-  async listUnprocessedResearchReports(limit = 5): Promise<Array<{ id: number; ticker: string }>> {
+  async claimResearchReports(limit = 5): Promise<Array<{ id: number; ticker: string }>> {
     const rows = await this.sql`
-      SELECT id, ticker FROM research_reports
-      WHERE status = 'running' AND report_md IS NULL AND error IS NULL
-      ORDER BY id ASC LIMIT ${limit}
+      UPDATE research_reports r SET claimed_at = now()
+      FROM (
+        SELECT id FROM research_reports
+        WHERE status = 'running' AND report_md IS NULL AND error IS NULL
+          AND (claimed_at IS NULL OR claimed_at < now() - interval '10 minutes')
+        ORDER BY id ASC LIMIT ${limit}
+        FOR UPDATE SKIP LOCKED
+      ) c
+      WHERE r.id = c.id
+        AND (r.claimed_at IS NULL OR r.claimed_at < now() - interval '10 minutes')
+      RETURNING r.id, r.ticker
     `;
     return rows as Array<{ id: number; ticker: string }>;
   }

@@ -142,9 +142,11 @@ CREATE TABLE IF NOT EXISTS research_reports (
   lenses_json     JSONB,
   data_snapshot_json JSONB,
   error           TEXT,
+  claimed_at      TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_research_reports_ticker ON research_reports(ticker, created_at DESC);
+ALTER TABLE research_reports ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ;
 `;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
