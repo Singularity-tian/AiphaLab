@@ -20,7 +20,8 @@ export async function generate(
   prompt: string,
   systemPrompt = "",
   _temperature = 0.7,
-  model = DEFAULT_MODEL
+  model = DEFAULT_MODEL,
+  maxTokens = 1024
 ): Promise<string> {
   const messages: { role: "system" | "user"; content: string }[] = [];
   if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
@@ -28,7 +29,7 @@ export async function generate(
 
   const resp = await getClient().chat.completions.create({
     model,
-    max_completion_tokens: 1024,
+    max_completion_tokens: maxTokens,
     messages,
   });
   const text = resp.choices[0]?.message?.content;

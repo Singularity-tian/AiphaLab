@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useStock, type StockData } from "@/hooks/useStock";
+import { DeepResearchButton } from "@/components/DeepResearchButton";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -369,6 +370,7 @@ export function StockAnalyzer() {
               )}
             </div>
           </div>
+          <DeepResearchButton ticker={data.quote.symbol} />
 
           {/* Company blurb */}
           {data.profile && (

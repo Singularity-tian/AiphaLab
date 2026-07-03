@@ -51,6 +51,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <a href="/traders" style={{ color: "inherit", textDecoration: "none" }}>
               All Traders
             </a>
+            <a href="/research" style={{ color: "inherit", textDecoration: "none" }}>
+              Research
+            </a>
             <a
               href="https://github.com/Singularity-tian/AiphaLab"
               target="_blank"

@@ -94,6 +94,25 @@ export interface PriceAlertRow {
   processed: boolean;
 }
 
+export interface ResearchReportRow {
+  id: number;
+  ticker: string;
+  status: "running" | "complete" | "failed";
+  report_md: string | null;
+  lenses_json: Record<string, string> | null;
+  data_snapshot_json: unknown | null;
+  error: string | null;
+  created_at: string;
+}
+
+export interface ResearchReportListItem {
+  id: number;
+  ticker: string;
+  status: string;
+  report_head: string | null;
+  created_at: string;
+}
+
 export interface PerformanceWindow {
   agentId: number;
   days: number;
@@ -548,5 +567,62 @@ export class SimDB {
       LIMIT ${count}
     `;
     return (rows as any[]).map((r) => r.content).reverse();
+  }
+
+  // ---- research reports ----
+  async createResearchReport(ticker: string): Promise<number> {
+    const rows = await this.sql`
+      INSERT INTO research_reports (ticker, status)
+      VALUES (${ticker}, 'running')
+      RETURNING id
+    `;
+    return (rows[0] as { id: number }).id;
+  }
+
+  async completeResearchReport(
+    id: number,
+    reportMd: string,
+    lensesJson: Record<string, string>,
+    dataSnapshot: unknown
+  ): Promise<void> {
+    await this.sql`
+      UPDATE research_reports
+      SET status = 'complete',
+          report_md = ${reportMd},
+          lenses_json = ${JSON.stringify(lensesJson)}::jsonb,
+          data_snapshot_json = ${JSON.stringify(dataSnapshot)}::jsonb,
+          error = NULL
+      WHERE id = ${id}
+    `;
+  }
+
+  async failResearchReport(id: number, error: string): Promise<void> {
+    await this.sql`
+      UPDATE research_reports SET status = 'failed', error = ${error} WHERE id = ${id}
+    `;
+  }
+
+  async getResearchReport(id: number): Promise<ResearchReportRow | null> {
+    const rows = await this.sql`SELECT * FROM research_reports WHERE id = ${id}`;
+    if (rows.length === 0) return null;
+    const r = { ...rows[0] };
+    if (r.created_at instanceof Date) r.created_at = r.created_at.toISOString();
+    return r as ResearchReportRow;
+  }
+
+  async listResearchReports(ticker?: string, limit = 50): Promise<ResearchReportListItem[]> {
+    const rows = ticker
+      ? await this.sql`
+          SELECT id, ticker, status, LEFT(report_md, 400) AS report_head, created_at
+          FROM research_reports WHERE ticker = ${ticker}
+          ORDER BY created_at DESC LIMIT ${limit}`
+      : await this.sql`
+          SELECT id, ticker, status, LEFT(report_md, 400) AS report_head, created_at
+          FROM research_reports
+          ORDER BY created_at DESC LIMIT ${limit}`;
+    return (rows as any[]).map((r) => ({
+      ...r,
+      created_at: r.created_at instanceof Date ? r.created_at.toISOString() : r.created_at,
+    })) as ResearchReportListItem[];
   }
 }

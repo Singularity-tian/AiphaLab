@@ -133,6 +133,18 @@ CREATE TABLE IF NOT EXISTS agent_docs (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_docs_unique ON agent_docs(agent_id, doc_type, COALESCE(doc_date, '0001-01-01'));
 CREATE INDEX IF NOT EXISTS idx_agent_docs_agent ON agent_docs(agent_id, doc_type);
+
+CREATE TABLE IF NOT EXISTS research_reports (
+  id              SERIAL PRIMARY KEY,
+  ticker          TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'running',
+  report_md       TEXT,
+  lenses_json     JSONB,
+  data_snapshot_json JSONB,
+  error           TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_research_reports_ticker ON research_reports(ticker, created_at DESC);
 `;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
