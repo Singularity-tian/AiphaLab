@@ -4,6 +4,7 @@ import { useState } from "react";
 import { DaemonStatus } from "@/components/DaemonStatus";
 import { MarketOverview } from "@/components/MarketOverview";
 import { CreateTraderSheet } from "@/components/CreateTraderSheet";
+import { StockAnalyzer } from "@/components/StockAnalyzer";
 import { useLeaderboard } from "@/hooks/useLeaderboard";
 import Leaderboard from "@/components/Leaderboard";
 import TraderCard from "@/components/TraderCard";
@@ -101,6 +102,11 @@ export default function DashboardPage() {
           </div>
         </header>
 
+        {/* Stock Analyzer */}
+        <div style={{ marginBottom: 40, maxWidth: 480 }}>
+          <StockAnalyzer />
+        </div>
+
         {/* Two-column layout: leaderboard + cards */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 32, alignItems: "start" }}>
           {/* Leaderboard */}
@@ -154,11 +160,9 @@ export default function DashboardPage() {
                     key={a.id}
                     id={a.id}
                     name={a.name}
-                    riskTolerance="medium"
                     cumulativeReturn={a.cumulativeReturn}
                     dailyReturn={a.dailyReturn}
-                    mood="neutral"
-                    runCount={0}
+                    runCount={a.runCount}
                   />
                 ))}
               </div>
