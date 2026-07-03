@@ -47,18 +47,24 @@ export async function GET(req: NextRequest) {
     // getQuote is the gate: it throws on an upstream failure (→ 502) and returns
     // null only when the symbol is genuinely unknown (→ 404). Every other section
     // degrades to null/[] so a missing block never fails the whole lookup.
-    const [quote, ohlc, profile, fundamentals, analyst, rating, rsi, earnings, peers] =
-      await Promise.all([
-        fmp.getQuote(ticker),
-        fmp.getDailyOHLC(ticker, subDays(90), today()).catch(() => [] as OHLCV[]),
-        fmp.getProfile(ticker).catch(() => null),
-        fmp.getFundamentalsTTM(ticker).catch(() => null),
-        fmp.getAnalystView(ticker).catch(() => null),
-        fmp.getRating(ticker).catch(() => null),
-        fmp.getRSI(ticker).catch(() => null),
-        fmp.getNextEarnings(ticker).catch(() => null),
-        fmp.getPeers(ticker).catch(() => []),
-      ]);
+    const [
+      quote, ohlc, profile, fundamentals, analyst, rating, technicals,
+      earnings, estimates, dividends, grades, statements, peers,
+    ] = await Promise.all([
+      fmp.getQuote(ticker),
+      fmp.getDailyOHLC(ticker, subDays(90), today()).catch(() => [] as OHLCV[]),
+      fmp.getProfile(ticker).catch(() => null),
+      fmp.getFundamentalsTTM(ticker).catch(() => null),
+      fmp.getAnalystView(ticker).catch(() => null),
+      fmp.getRating(ticker).catch(() => null),
+      fmp.getTechnicals(ticker).catch(() => null),
+      fmp.getNextEarnings(ticker).catch(() => null),
+      fmp.getForwardEstimate(ticker).catch(() => null),
+      fmp.getDividendHistory(ticker).catch(() => []),
+      fmp.getRatingActions(ticker).catch(() => []),
+      fmp.getStatements(ticker).catch(() => null),
+      fmp.getPeers(ticker).catch(() => []),
+    ]);
 
     if (!quote) {
       return NextResponse.json({ error: `Ticker "${ticker}" not found` }, { status: 404 });
@@ -71,8 +77,12 @@ export async function GET(req: NextRequest) {
       fundamentals,
       analyst,
       rating,
-      rsi,
+      technicals,
       earnings,
+      estimates,
+      dividends,
+      grades,
+      statements,
       peers,
     });
   } catch (e) {

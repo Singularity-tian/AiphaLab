@@ -105,6 +105,16 @@ export interface FundamentalsTTM {
     yield: number | null;
     payoutRatio: number | null;
   };
+  efficiency: {
+    assetTurnover: number | null;
+    inventoryTurnover: number | null;
+    receivablesTurnover: number | null;
+    daysSalesOutstanding: number | null;
+    daysInventoryOutstanding: number | null;
+    cashConversionCycle: number | null;
+    grahamNumber: number | null;
+    effectiveTaxRate: number | null;
+  };
 }
 
 export interface AnalystView {
@@ -141,6 +151,81 @@ export interface StockPeer {
   symbol: string;
   companyName: string;
   price: number | null;
+}
+
+export interface IncomeStatement {
+  revenue: number | null;
+  grossProfit: number | null;
+  operatingIncome: number | null;
+  ebitda: number | null;
+  netIncome: number | null;
+  eps: number | null;
+  epsDiluted: number | null;
+  researchAndDevelopment: number | null;
+  interestExpense: number | null;
+  incomeTax: number | null;
+}
+
+export interface BalanceSheet {
+  totalAssets: number | null;
+  totalLiabilities: number | null;
+  totalEquity: number | null;
+  cash: number | null;
+  totalDebt: number | null;
+  netDebt: number | null;
+  currentAssets: number | null;
+  currentLiabilities: number | null;
+  inventory: number | null;
+  retainedEarnings: number | null;
+}
+
+export interface CashFlowStatement {
+  operatingCashFlow: number | null;
+  capex: number | null;
+  freeCashFlow: number | null;
+  stockBasedComp: number | null;
+  dividendsPaid: number | null;
+  buybacks: number | null;
+  netChangeInCash: number | null;
+}
+
+export interface FinancialStatements {
+  period: string;
+  fiscalYear: string;
+  income: IncomeStatement | null;
+  balance: BalanceSheet | null;
+  cashflow: CashFlowStatement | null;
+}
+
+export interface ForwardEstimate {
+  date: string;
+  revenueAvg: number | null;
+  ebitdaAvg: number | null;
+  netIncomeAvg: number | null;
+  epsAvg: number | null;
+  epsLow: number | null;
+  epsHigh: number | null;
+  numAnalysts: number | null;
+}
+
+export interface DividendPayment {
+  date: string;
+  amount: number;
+  frequency: string;
+}
+
+export interface RatingAction {
+  date: string;
+  company: string;
+  action: string;
+  fromGrade: string;
+  toGrade: string;
+}
+
+export interface Technicals {
+  rsi14: number | null;
+  sma20: number | null;
+  ema50: number | null;
 }
 
 // ---- Simple in-memory cache with in-flight deduplication ----
@@ -381,6 +466,16 @@ export class FMPClient {
           yield: rr.dividendYieldTTM ?? null,
           payoutRatio: rr.dividendPayoutRatioTTM ?? null,
         },
+        efficiency: {
+          assetTurnover: rr.assetTurnoverTTM ?? null,
+          inventoryTurnover: rr.inventoryTurnoverTTM ?? null,
+          receivablesTurnover: rr.receivablesTurnoverTTM ?? null,
+          daysSalesOutstanding: kk.daysOfSalesOutstandingTTM ?? null,
+          daysInventoryOutstanding: kk.daysOfInventoryOutstandingTTM ?? null,
+          cashConversionCycle: kk.cashConversionCycleTTM ?? null,
+          grahamNumber: kk.grahamNumberTTM ?? null,
+          effectiveTaxRate: rr.effectiveTaxRateTTM ?? null,
+        },
       };
     });
   }
@@ -431,15 +526,150 @@ export class FMPClient {
     });
   }
 
-  /** Latest RSI value (default 14-period, daily), cached 1h. */
-  async getRSI(ticker: string, period = 14): Promise<number | null> {
-    return cached(`rsi:${ticker}:${period}`, 60 * 60 * 1000, async () => {
+  /** Latest technical indicators (RSI 14, SMA 20, EMA 50; daily), cached 1h. */
+  async getTechnicals(ticker: string): Promise<Technicals | null> {
+    return cached(`tech:${ticker}`, 60 * 60 * 1000, async () => {
+      const sym = encodeURIComponent(ticker);
+      const indicator = async (type: string, period: number): Promise<number | null> => {
+        const res = await fetch(
+          `${FMP_BASE}/technical-indicators/${type}?symbol=${sym}&periodLength=${period}&timeframe=1day&apikey=${this.key}`
+        );
+        if (!res.ok) return null;
+        const d = await res.json();
+        return Array.isArray(d) && typeof d[0]?.[type] === "number" ? d[0][type] : null;
+      };
+      const [rsi14, sma20, ema50] = await Promise.all([
+        indicator("rsi", 14),
+        indicator("sma", 20),
+        indicator("ema", 50),
+      ]);
+      if (rsi14 == null && sma20 == null && ema50 == null) return null;
+      return { rsi14, sma20, ema50 };
+    });
+  }
+
+  /** Latest annual financial statements (income, balance, cash flow), cached 24h. */
+  async getStatements(ticker: string): Promise<FinancialStatements | null> {
+    return cached(`statements:${ticker}`, 24 * 60 * 60 * 1000, async () => {
+      const sym = encodeURIComponent(ticker);
+      const [iRes, bRes, cRes] = await Promise.all([
+        fetch(`${FMP_BASE}/income-statement?symbol=${sym}&limit=1&apikey=${this.key}`),
+        fetch(`${FMP_BASE}/balance-sheet-statement?symbol=${sym}&limit=1&apikey=${this.key}`),
+        fetch(`${FMP_BASE}/cash-flow-statement?symbol=${sym}&limit=1&apikey=${this.key}`),
+      ]);
+      const i = iRes.ok ? (await iRes.json())?.[0] : null;
+      const b = bRes.ok ? (await bRes.json())?.[0] : null;
+      const c = cRes.ok ? (await cRes.json())?.[0] : null;
+      if (!i && !b && !c) return null;
+      return {
+        period: i?.period ?? b?.period ?? c?.period ?? "",
+        fiscalYear: String(i?.fiscalYear ?? b?.fiscalYear ?? c?.fiscalYear ?? ""),
+        income: i
+          ? {
+              revenue: i.revenue ?? null,
+              grossProfit: i.grossProfit ?? null,
+              operatingIncome: i.operatingIncome ?? null,
+              ebitda: i.ebitda ?? null,
+              netIncome: i.netIncome ?? null,
+              eps: i.eps ?? null,
+              epsDiluted: i.epsDiluted ?? null,
+              researchAndDevelopment: i.researchAndDevelopmentExpenses ?? null,
+              interestExpense: i.interestExpense ?? null,
+              incomeTax: i.incomeTaxExpense ?? null,
+            }
+          : null,
+        balance: b
+          ? {
+              totalAssets: b.totalAssets ?? null,
+              totalLiabilities: b.totalLiabilities ?? null,
+              totalEquity: b.totalStockholdersEquity ?? b.totalEquity ?? null,
+              cash: b.cashAndCashEquivalents ?? null,
+              totalDebt: b.totalDebt ?? null,
+              netDebt: b.netDebt ?? null,
+              currentAssets: b.totalCurrentAssets ?? null,
+              currentLiabilities: b.totalCurrentLiabilities ?? null,
+              inventory: b.inventory ?? null,
+              retainedEarnings: b.retainedEarnings ?? null,
+            }
+          : null,
+        cashflow: c
+          ? {
+              operatingCashFlow: c.operatingCashFlow ?? null,
+              capex: c.capitalExpenditure != null ? Math.abs(c.capitalExpenditure) : null,
+              freeCashFlow: c.freeCashFlow ?? null,
+              stockBasedComp: c.stockBasedCompensation ?? null,
+              dividendsPaid:
+                c.commonDividendsPaid != null
+                  ? Math.abs(c.commonDividendsPaid)
+                  : c.netDividendsPaid != null
+                    ? Math.abs(c.netDividendsPaid)
+                    : null,
+              buybacks: c.commonStockRepurchased != null ? Math.abs(c.commonStockRepurchased) : null,
+              netChangeInCash: c.netChangeInCash ?? null,
+            }
+          : null,
+      };
+    });
+  }
+
+  /** Nearest upcoming annual analyst estimate, cached 24h. */
+  async getForwardEstimate(ticker: string): Promise<ForwardEstimate | null> {
+    return cached(`estimate:${ticker}`, 24 * 60 * 60 * 1000, async () => {
       const res = await fetch(
-        `${FMP_BASE}/technical-indicators/rsi?symbol=${encodeURIComponent(ticker)}&periodLength=${period}&timeframe=1day&apikey=${this.key}`
+        `${FMP_BASE}/analyst-estimates?symbol=${encodeURIComponent(ticker)}&period=annual&limit=10&apikey=${this.key}`
       );
       if (!res.ok) return null;
-      const d = await res.json();
-      return Array.isArray(d) && typeof d[0]?.rsi === "number" ? d[0].rsi : null;
+      const arr = await res.json();
+      if (!Array.isArray(arr) || arr.length === 0) return null;
+      const today = new Date().toISOString().split("T")[0];
+      const future = arr
+        .filter((e) => e.date >= today)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      const d = future[0] ?? arr[0];
+      return {
+        date: d.date,
+        revenueAvg: d.revenueAvg ?? null,
+        ebitdaAvg: d.ebitdaAvg ?? null,
+        netIncomeAvg: d.netIncomeAvg ?? null,
+        epsAvg: d.epsAvg ?? null,
+        epsLow: d.epsLow ?? null,
+        epsHigh: d.epsHigh ?? null,
+        numAnalysts: d.numAnalystsEps ?? d.numAnalystsRevenue ?? null,
+      };
+    });
+  }
+
+  /** Recent dividend payments, cached 24h. */
+  async getDividendHistory(ticker: string, limit = 6): Promise<DividendPayment[]> {
+    return cached(`divhist:${ticker}:${limit}`, 24 * 60 * 60 * 1000, async () => {
+      const res = await fetch(
+        `${FMP_BASE}/dividends?symbol=${encodeURIComponent(ticker)}&limit=${limit}&apikey=${this.key}`
+      );
+      if (!res.ok) return [];
+      const arr = await res.json();
+      if (!Array.isArray(arr)) return [];
+      return arr
+        .filter((d) => typeof d.dividend === "number")
+        .map((d) => ({ date: d.date, amount: d.dividend, frequency: d.frequency ?? "" }));
+    });
+  }
+
+  /** Recent individual analyst rating actions (upgrades/downgrades), cached 6h. */
+  async getRatingActions(ticker: string, limit = 6): Promise<RatingAction[]> {
+    return cached(`grades:${ticker}:${limit}`, 6 * 60 * 60 * 1000, async () => {
+      const res = await fetch(
+        `${FMP_BASE}/grades?symbol=${encodeURIComponent(ticker)}&limit=${limit}&apikey=${this.key}`
+      );
+      if (!res.ok) return [];
+      const arr = await res.json();
+      if (!Array.isArray(arr)) return [];
+      return arr.map((g) => ({
+        date: g.date,
+        company: g.gradingCompany ?? "",
+        action: g.action ?? "",
+        fromGrade: g.previousGrade ?? "",
+        toGrade: g.newGrade ?? "",
+      }));
     });
   }
 

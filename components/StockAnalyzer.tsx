@@ -143,6 +143,141 @@ function RatingSection({ data }: { data: StockData }) {
   );
 }
 
+function TechnicalsSection({ data }: { data: StockData }) {
+  const t = data.technicals;
+  if (!t) return null;
+  const items: Item[] = [
+    ["RSI 14", nOr(t.rsi14, (x) => x.toFixed(1))],
+    ["SMA 20", nOr(t.sma20, fmt)],
+    ["EMA 50", nOr(t.ema50, fmt)],
+  ];
+  if (!hasAny(items)) return null;
+  return (
+    <>
+      <SectionLabel>Technicals</SectionLabel>
+      <Grid minCol={84} items={items} />
+    </>
+  );
+}
+
+function RatingChangesSection({ data }: { data: StockData }) {
+  if (data.grades.length === 0) return null;
+  const actionColor = (a: string) =>
+    a === "upgrade" ? "#22c55e" : a === "downgrade" ? "#ef4444" : "#71717a";
+  return (
+    <>
+      <SectionLabel>Recent Rating Changes</SectionLabel>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {data.grades.slice(0, 6).map((g, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", fontSize: 11, gap: 8 }}>
+            <span style={{ color: "#a1a1aa", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {g.company || "—"}
+            </span>
+            <span style={{ color: actionColor(g.action), textTransform: "capitalize", width: 70, textAlign: "right" }}>
+              {g.action}
+            </span>
+            <span style={{ color: "#71717a", width: 92, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {g.toGrade}
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function DividendHistorySection({ data }: { data: StockData }) {
+  if (data.dividends.length === 0) return null;
+  return (
+    <>
+      <SectionLabel>Dividend History</SectionLabel>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {data.dividends.slice(0, 6).map((d, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+            <span style={{ color: "#a1a1aa" }}>{d.date}</span>
+            <span style={{ color: "#71717a" }}>{d.frequency}</span>
+            <span style={{ color: "#a1a1aa" }}>${fmt(d.amount)}</span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function StatementsSection({ data }: { data: StockData }) {
+  const s = data.statements;
+  if (!s) return null;
+  const yr = s.fiscalYear ? ` · FY${s.fiscalYear}` : "";
+  return (
+    <>
+      {s.income && hasAny([["Revenue", nOr(s.income.revenue, fmtCompact)]]) && (
+        <>
+          <SectionLabel>Income Statement{yr}</SectionLabel>
+          <Grid items={[
+            ["Revenue", nOr(s.income.revenue, fmtCompact)],
+            ["Gross Profit", nOr(s.income.grossProfit, fmtCompact)],
+            ["Oper Income", nOr(s.income.operatingIncome, fmtCompact)],
+            ["EBITDA", nOr(s.income.ebitda, fmtCompact)],
+            ["Net Income", nOr(s.income.netIncome, fmtCompact)],
+            ["R&D", nOr(s.income.researchAndDevelopment, fmtCompact)],
+            ["EPS (dil)", nOr(s.income.epsDiluted, money)],
+            ["Income Tax", nOr(s.income.incomeTax, fmtCompact)],
+          ]} />
+        </>
+      )}
+      {s.balance && hasAny([["Assets", nOr(s.balance.totalAssets, fmtCompact)]]) && (
+        <>
+          <SectionLabel>Balance Sheet{yr}</SectionLabel>
+          <Grid items={[
+            ["Assets", nOr(s.balance.totalAssets, fmtCompact)],
+            ["Liabilities", nOr(s.balance.totalLiabilities, fmtCompact)],
+            ["Equity", nOr(s.balance.totalEquity, fmtCompact)],
+            ["Cash", nOr(s.balance.cash, fmtCompact)],
+            ["Total Debt", nOr(s.balance.totalDebt, fmtCompact)],
+            ["Net Debt", nOr(s.balance.netDebt, fmtCompact)],
+            ["Inventory", nOr(s.balance.inventory, fmtCompact)],
+            ["Ret. Earnings", nOr(s.balance.retainedEarnings, fmtCompact)],
+          ]} />
+        </>
+      )}
+      {s.cashflow && hasAny([["Op Cash Flow", nOr(s.cashflow.operatingCashFlow, fmtCompact)]]) && (
+        <>
+          <SectionLabel>Cash Flow{yr}</SectionLabel>
+          <Grid items={[
+            ["Op Cash Flow", nOr(s.cashflow.operatingCashFlow, fmtCompact)],
+            ["CapEx", nOr(s.cashflow.capex, fmtCompact)],
+            ["Free CF", nOr(s.cashflow.freeCashFlow, fmtCompact)],
+            ["Buybacks", nOr(s.cashflow.buybacks, fmtCompact)],
+            ["Dividends", nOr(s.cashflow.dividendsPaid, fmtCompact)],
+            ["SBC", nOr(s.cashflow.stockBasedComp, fmtCompact)],
+          ]} />
+        </>
+      )}
+    </>
+  );
+}
+
+function EstimatesSection({ data }: { data: StockData }) {
+  const e = data.estimates;
+  if (!e) return null;
+  const items: Item[] = [
+    ["Revenue", nOr(e.revenueAvg, fmtCompact)],
+    ["EBITDA", nOr(e.ebitdaAvg, fmtCompact)],
+    ["Net Income", nOr(e.netIncomeAvg, fmtCompact)],
+    ["EPS", nOr(e.epsAvg, money)],
+    ["EPS Range", e.epsLow != null && e.epsHigh != null ? `$${fmt(e.epsLow)}–$${fmt(e.epsHigh)}` : null],
+    ["# Analysts", nOr(e.numAnalysts, (x) => String(x))],
+  ];
+  if (!hasAny(items)) return null;
+  const yr = e.date ? e.date.slice(0, 4) : "";
+  return (
+    <>
+      <SectionLabel>Analyst Estimates{yr ? ` · FY${yr}` : ""}</SectionLabel>
+      <Grid items={items} />
+    </>
+  );
+}
+
 export function StockAnalyzer() {
   const [input, setInput] = useState("");
   const { data, loading, error, search, clear } = useStock();
@@ -271,7 +406,6 @@ export function StockAnalyzer() {
                 ["MA 200", fmt(data.quote.priceAvg200)],
                 ["Year Low", fmt(data.quote.yearLow)],
                 ["Year High", fmt(data.quote.yearHigh)],
-                ["RSI 14", nOr(data.rsi, (x) => x.toFixed(1))],
               ]}
             />
           </div>
@@ -297,8 +431,14 @@ export function StockAnalyzer() {
             </div>
           )}
 
+          {/* Technicals */}
+          <TechnicalsSection data={data} />
+
           {/* Analyst consensus + price targets */}
           <AnalystSection data={data} />
+
+          {/* Recent analyst rating changes */}
+          <RatingChangesSection data={data} />
 
           {/* FMP rating */}
           <RatingSection data={data} />
@@ -339,6 +479,23 @@ export function StockAnalyzer() {
             </>
           )}
 
+          {/* Efficiency */}
+          {f && hasAny([["Asset Turn", nOr(f.efficiency.assetTurnover, (x) => dec(x, 2))]]) && (
+            <>
+              <SectionLabel>Efficiency (TTM)</SectionLabel>
+              <Grid items={[
+                ["Asset Turn", nOr(f.efficiency.assetTurnover, (x) => dec(x, 2))],
+                ["Inv Turn", nOr(f.efficiency.inventoryTurnover, (x) => dec(x, 1))],
+                ["Recv Turn", nOr(f.efficiency.receivablesTurnover, (x) => dec(x, 1))],
+                ["DSO", nOr(f.efficiency.daysSalesOutstanding, (x) => dec(x, 0))],
+                ["DIO", nOr(f.efficiency.daysInventoryOutstanding, (x) => dec(x, 0))],
+                ["Cash Cycle", nOr(f.efficiency.cashConversionCycle, (x) => dec(x, 0))],
+                ["Graham #", nOr(f.efficiency.grahamNumber, money)],
+                ["Tax Rate", nOr(f.efficiency.effectiveTaxRate, (x) => pct(x, 1))],
+              ]} />
+            </>
+          )}
+
           {/* Financial health */}
           {f && hasAny([["Current", nOr(f.health.currentRatio, dec)]]) && (
             <>
@@ -370,6 +527,15 @@ export function StockAnalyzer() {
               ]} />
             </>
           )}
+
+          {/* Dividend history */}
+          <DividendHistorySection data={data} />
+
+          {/* Financial statements */}
+          <StatementsSection data={data} />
+
+          {/* Forward analyst estimates */}
+          <EstimatesSection data={data} />
 
           {/* Next earnings */}
           {data.earnings && (

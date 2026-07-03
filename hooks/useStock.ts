@@ -86,6 +86,16 @@ export interface FundamentalsTTM {
     yield: number | null;
     payoutRatio: number | null;
   };
+  efficiency: {
+    assetTurnover: number | null;
+    inventoryTurnover: number | null;
+    receivablesTurnover: number | null;
+    daysSalesOutstanding: number | null;
+    daysInventoryOutstanding: number | null;
+    cashConversionCycle: number | null;
+    grahamNumber: number | null;
+    effectiveTaxRate: number | null;
+  };
 }
 
 export interface AnalystView {
@@ -124,6 +134,81 @@ export interface StockPeer {
   price: number | null;
 }
 
+export interface IncomeStatement {
+  revenue: number | null;
+  grossProfit: number | null;
+  operatingIncome: number | null;
+  ebitda: number | null;
+  netIncome: number | null;
+  eps: number | null;
+  epsDiluted: number | null;
+  researchAndDevelopment: number | null;
+  interestExpense: number | null;
+  incomeTax: number | null;
+}
+
+export interface BalanceSheet {
+  totalAssets: number | null;
+  totalLiabilities: number | null;
+  totalEquity: number | null;
+  cash: number | null;
+  totalDebt: number | null;
+  netDebt: number | null;
+  currentAssets: number | null;
+  currentLiabilities: number | null;
+  inventory: number | null;
+  retainedEarnings: number | null;
+}
+
+export interface CashFlowStatement {
+  operatingCashFlow: number | null;
+  capex: number | null;
+  freeCashFlow: number | null;
+  stockBasedComp: number | null;
+  dividendsPaid: number | null;
+  buybacks: number | null;
+  netChangeInCash: number | null;
+}
+
+export interface FinancialStatements {
+  period: string;
+  fiscalYear: string;
+  income: IncomeStatement | null;
+  balance: BalanceSheet | null;
+  cashflow: CashFlowStatement | null;
+}
+
+export interface ForwardEstimate {
+  date: string;
+  revenueAvg: number | null;
+  ebitdaAvg: number | null;
+  netIncomeAvg: number | null;
+  epsAvg: number | null;
+  epsLow: number | null;
+  epsHigh: number | null;
+  numAnalysts: number | null;
+}
+
+export interface DividendPayment {
+  date: string;
+  amount: number;
+  frequency: string;
+}
+
+export interface RatingAction {
+  date: string;
+  company: string;
+  action: string;
+  fromGrade: string;
+  toGrade: string;
+}
+
+export interface Technicals {
+  rsi14: number | null;
+  sma20: number | null;
+  ema50: number | null;
+}
+
 export interface StockData {
   quote: StockQuote;
   ohlc: OHLCV[];
@@ -131,8 +216,12 @@ export interface StockData {
   fundamentals: FundamentalsTTM | null;
   analyst: AnalystView | null;
   rating: StockRating | null;
-  rsi: number | null;
+  technicals: Technicals | null;
   earnings: NextEarnings | null;
+  estimates: ForwardEstimate | null;
+  dividends: DividendPayment[];
+  grades: RatingAction[];
+  statements: FinancialStatements | null;
   peers: StockPeer[];
 }
 
