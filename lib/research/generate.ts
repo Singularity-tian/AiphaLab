@@ -1,6 +1,5 @@
 import { getStockBundle } from "@/lib/stockData";
 import { getFmp, type FundamentalsTTM } from "@/lib/fmp";
-import { generate } from "@/lib/llm";
 import type { SimDB } from "@/lib/db/repository";
 import {
   LENSES,
@@ -24,16 +23,19 @@ export type GenerateFn = (
  * Runs the full research panel for one report row. Never throws: the row
  * always ends 'complete' or 'failed'.
  *
- * NOTE (serverless): this is fire-and-forgotten by the POST route. On Vercel,
- * work after the response may be killed — acceptable for local/dev use. If
- * reports are needed in production, move this call into the daemon (poll a
- * research_requests queue); the API contract does not change.
+ * Execution model: the POST route only inserts the row; the daemon's research
+ * worker (daemon/researchWorker.ts) polls for unprocessed rows and calls this
+ * with an llmBucket-wrapped generateFn. Nothing depends on post-response
+ * execution, so this works on serverless deployments too.
  */
 export async function runResearchReport(
   db: SimDB,
   reportId: number,
   ticker: string,
-  generateFn: GenerateFn = generate
+  // No default on purpose: production callers must pass an llmBucket-wrapped
+  // GenerateFn (see daemon/researchWorker.ts); tests pass stubs. A raw
+  // `generate` default would silently bypass daemon rate limiting.
+  generateFn: GenerateFn
 ): Promise<void> {
   try {
     const base = await getStockBundle(ticker);
