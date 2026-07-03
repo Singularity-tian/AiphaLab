@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { SimDB } from "@/lib/db/repository";
 import { getFmp } from "@/lib/fmp";
-import { runResearchReport } from "@/lib/research/generate";
 import { presentStatus } from "@/lib/research/lenses";
 
 export const dynamic = "force-dynamic";
@@ -64,11 +63,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Upstream data provider error" }, { status: 502 });
   }
 
+  // Queue only: the daemon's research worker (daemon/researchWorker.ts) polls
+  // every ~10s for unprocessed rows and runs the panel. Requires the daemon
+  // to be running (pnpm daemon / daemon:dev) — works on serverless too, since
+  // nothing here depends on post-response execution.
   const id = await db.createResearchReport(ticker);
-  // Fire and forget — see the serverless note in lib/research/generate.ts.
-  runResearchReport(db, id, ticker).catch((e) =>
-    console.error(`[api/research] unexpected orchestrator escape: ${String(e)}`)
-  );
 
   return NextResponse.json({ id }, { status: 201 });
 }

@@ -24,10 +24,10 @@ export type GenerateFn = (
  * Runs the full research panel for one report row. Never throws: the row
  * always ends 'complete' or 'failed'.
  *
- * NOTE (serverless): this is fire-and-forgotten by the POST route. On Vercel,
- * work after the response may be killed — acceptable for local/dev use. If
- * reports are needed in production, move this call into the daemon (poll a
- * research_requests queue); the API contract does not change.
+ * Execution model: the POST route only inserts the row; the daemon's research
+ * worker (daemon/researchWorker.ts) polls for unprocessed rows and calls this
+ * with an llmBucket-wrapped generateFn. Nothing depends on post-response
+ * execution, so this works on serverless deployments too.
  */
 export async function runResearchReport(
   db: SimDB,

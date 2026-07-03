@@ -100,7 +100,7 @@ export function DeepResearchButton({ ticker }: { ticker: string }) {
       )}
       {(phase === "starting" || phase === "running") && (
         <span style={{ fontSize: 11, color: "#71717a" }}>
-          Research panel analyzing… ~1 min
+          Research panel analyzing… ~1–2 min
         </span>
       )}
       {phase === "done" && reportId != null && (

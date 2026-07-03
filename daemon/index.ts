@@ -25,6 +25,7 @@ import { runMarketClose } from "./phases/marketClose";
 import { runAfterHours } from "./phases/afterHours";
 import { runWeeklyReview } from "./phases/weeklyReview";
 import { runPriceMonitor } from "./priceMonitor";
+import { runResearchWorker } from "./researchWorker";
 
 const VERSION = "3.0.0";
 
@@ -206,6 +207,20 @@ async function startScheduler() {
     }
   }, 5 * 60 * 1000);
 
+  // Research worker: poll every 10s for queued research reports (any time of day)
+  let researchPolling = false;
+  const researchInterval = setInterval(async () => {
+    if (researchPolling) return;
+    researchPolling = true;
+    try {
+      await runResearchWorker(db, llmBucket);
+    } catch (e) {
+      console.error("[daemon] researchWorker error:", e);
+    } finally {
+      researchPolling = false;
+    }
+  }, 10_000);
+
   scheduler.start();
   heartbeatLoop().catch(console.error);
 
@@ -214,6 +229,7 @@ async function startScheduler() {
     console.log("\n[daemon] Shutting down gracefully...");
     scheduler.stop();
     clearInterval(priceMonitorInterval);
+    clearInterval(researchInterval);
     process.exit(0);
   };
   process.on("SIGTERM", shutdown);

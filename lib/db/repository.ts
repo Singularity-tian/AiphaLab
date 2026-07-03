@@ -579,6 +579,20 @@ export class SimDB {
     return (rows[0] as { id: number }).id;
   }
 
+  /**
+   * Queued rows awaiting the daemon's research worker: still 'running' with
+   * neither output nor error. Includes orphans from a prior daemon crash, so
+   * a restart resumes them.
+   */
+  async listUnprocessedResearchReports(limit = 5): Promise<Array<{ id: number; ticker: string }>> {
+    const rows = await this.sql`
+      SELECT id, ticker FROM research_reports
+      WHERE status = 'running' AND report_md IS NULL AND error IS NULL
+      ORDER BY id ASC LIMIT ${limit}
+    `;
+    return rows as Array<{ id: number; ticker: string }>;
+  }
+
   async completeResearchReport(
     id: number,
     reportMd: string,
