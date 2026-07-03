@@ -5,10 +5,10 @@ import Link from "next/link";
 interface Props {
   id: number;
   name: string;
-  riskTolerance: string;
+  riskTolerance?: string;
   cumulativeReturn: number;
   dailyReturn: number;
-  mood: string;
+  mood?: string;
   runCount: number;
 }
 
@@ -125,9 +125,11 @@ export default function TraderCard({
             >
               {name}
             </div>
-            <div style={{ fontSize: 10, color: "#71717a" }}>
-              {MOOD_EMOJI[mood] ?? "⚪"} {mood}
-            </div>
+            {mood && (
+              <div style={{ fontSize: 10, color: "#71717a" }}>
+                {MOOD_EMOJI[mood] ?? "⚪"} {mood}
+              </div>
+            )}
           </div>
         </div>
 
@@ -185,18 +187,20 @@ export default function TraderCard({
 
         {/* Badges */}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <span
-            style={{
-              background: "#1e1e22",
-              border: "1px solid #27272a",
-              padding: "2px 8px",
-              borderRadius: 3,
-              fontSize: 10,
-              color: riskColor[riskTolerance] ?? "#a1a1aa",
-            }}
-          >
-            {riskTolerance}
-          </span>
+          {riskTolerance && (
+            <span
+              style={{
+                background: "#1e1e22",
+                border: "1px solid #27272a",
+                padding: "2px 8px",
+                borderRadius: 3,
+                fontSize: 10,
+                color: riskColor[riskTolerance] ?? "#a1a1aa",
+              }}
+            >
+              {riskTolerance}
+            </span>
+          )}
           {runCount > 0 && (
             <span
               style={{

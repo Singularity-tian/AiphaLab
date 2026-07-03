@@ -10,6 +10,7 @@ interface LeaderboardEntry {
   cumulativeReturn: number;
   dailyReturn: number;
   tradeCount: number;
+  runCount: number;
   snapDate: string | null;
 }
 

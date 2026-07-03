@@ -275,11 +275,13 @@ export class SimDB {
     daily_return: number | null;
     snap_date: string;
     trade_count: number;
+    run_count: number;
   }>> {
     const rows = await this.sql`
       SELECT a.id, a.name,
              COALESCE(s.portfolio_value, st.portfolio_value, a.initial_cash) AS portfolio_value,
              s.cumulative_return, s.daily_return, s.date AS snap_date,
+             COALESCE(st.run_count, 0)::int AS run_count,
              (SELECT COUNT(*) FROM trades WHERE agent_id = a.id)::int AS trade_count
       FROM agents a
       LEFT JOIN agent_state st ON st.agent_id = a.id

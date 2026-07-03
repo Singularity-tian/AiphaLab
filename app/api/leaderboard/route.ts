@@ -16,6 +16,7 @@ export async function GET() {
       cumulativeReturn: r.cumulative_return ?? 0,
       dailyReturn: r.daily_return ?? 0,
       tradeCount: r.trade_count ?? 0,
+      runCount: r.run_count ?? 0,
       snapDate: r.snap_date,
     }));
     return NextResponse.json(leaderboard);
