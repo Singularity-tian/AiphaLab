@@ -5,10 +5,21 @@ let _client: OpenAI | null = null;
 
 function getClient(): OpenAI {
   if (!_client) {
-    _client = new OpenAI({
-      apiKey: process.env.AZURE_API_KEY,
-      baseURL: process.env.AZURE_BASE_URL!,
-    });
+    const apiKey = process.env.AZURE_API_KEY;
+    const baseURL = process.env.AZURE_BASE_URL;
+    // Without this guard, a missing AZURE_API_KEY makes the OpenAI SDK fall
+    // back to OPENAI_API_KEY and report *that* as missing — which is an
+    // optional embeddings-only var here, so the real misconfiguration is
+    // invisible in surfaced errors (daemon logs, failed research reports).
+    const missing = [!apiKey && "AZURE_API_KEY", !baseURL && "AZURE_BASE_URL"]
+      .filter(Boolean)
+      .join(" and ");
+    if (missing) {
+      throw new Error(
+        `LLM client misconfigured: ${missing} not set. Set it in .env.local locally, or in the service variables on Railway (daemon) / Vercel (app).`
+      );
+    }
+    _client = new OpenAI({ apiKey, baseURL });
   }
   return _client;
 }
