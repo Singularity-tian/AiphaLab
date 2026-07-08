@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AiphaLab — AI Trader Simulation",
-  description: "100 LLM-powered traders simulating the market",
+  title: "AiphaLab — Personal CIO",
+  description: "Personal investment context, portfolio risk, and AI-assisted wealth decisions",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -46,10 +46,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           </a>
           <div style={{ display: "flex", gap: 24, fontSize: 11, color: "#71717a", alignItems: "center" }}>
             <a href="/" style={{ color: "inherit", textDecoration: "none" }}>
-              Dashboard
-            </a>
-            <a href="/traders" style={{ color: "inherit", textDecoration: "none" }}>
-              All Traders
+              CIO
             </a>
             <a href="/research" style={{ color: "inherit", textDecoration: "none" }}>
               Research

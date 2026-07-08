@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import { SimDB } from "@/lib/db/repository";
 import { presentStatus, LENSES } from "@/lib/research/lenses";
 import { RetryResearchButton } from "@/components/RetryResearchButton";
+import { ProposalFromResearchButton } from "@/components/desk/ProposalFromResearchButton";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,7 @@ export default async function ResearchReportPage({ params }: { params: Promise<{
         <p style={{ color: "#71717a", fontSize: 11, marginTop: 4 }}>
           Generated {row.created_at.slice(0, 16).replace("T", " ")} · status: {status}
         </p>
+        {status === "complete" && <ProposalFromResearchButton reportId={row.id} />}
       </header>
 
       {status === "running" && (
