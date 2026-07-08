@@ -12,7 +12,9 @@
     "add-traders": "tsx scripts/add-traders.ts",
     "run": "tsx scripts/run.ts",
     "migrate": "tsx scripts/migrate.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:desk": "tsx scripts/desk-selftest.ts && tsx scripts/personal-selftest.ts",
+    "test:personal": "tsx scripts/personal-selftest.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
